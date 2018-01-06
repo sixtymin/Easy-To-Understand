@@ -1,0 +1,11 @@
+
+
+http://blog.csdn.net/sevensevensevenday/article/details/61414245        // UEFI 环境部署
+http://blog.csdn.net/column/details/15405.html
+
+戴震华  UEFI原理与编程
+
+http://www.tianocore.org/           // UEFI 核心源码
+
+
+
