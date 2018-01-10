@@ -1,0 +1,11 @@
+
+#Windows
+Thumbs.db
+Desktop.ini
+
+*.bin
+*.lst
+
+# C Program
+*.obj
+*.o
