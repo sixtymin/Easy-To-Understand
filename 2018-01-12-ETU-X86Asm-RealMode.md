@@ -29,6 +29,63 @@
 
 作者在进行代码验证时使用VirtualBox和Bochs，硬盘用VHD虚拟硬盘。这个格式作者有详细介绍，可以参考书附件中所带的该磁盘格式的说明。我个人向用Bochs所生成的`*.img`格式，一方面可以直接用于调试，另外也不依赖作者的工具必须写到VHD格式磁盘中。有一些人可能不知道怎么搞Bochs默认的`*.img`，参考Bochs创建磁盘的说明，先img中写数据可以使用dd工具，在github上有对应的代码可以参考。
 
+磁盘作为外设连接到I/O控制器上，一般机器上的PATA/SATA会有两个接口，主硬盘接口分配端口号为0x1F0~0x1F7，副盘的接口分配端口为0x170~0x177。以主盘端口为例，0x1F0为读取数据端口，0x1F1为错误寄存器端口，0x1F2为读取扇区数，0x1F3~0x1F6为LBA起始逻辑扇区号，0x1F7为状态端口。如下代码段给出读取磁盘的一个函数：
+
+```
+    ; 
+    ; Read Main HardDisk
+    ; CX     start section no.
+    ; ES:DI  buffer address
+    ;    
+read_harddisk_0:
+    ; Read Section Number
+    push dx
+    
+    mov dx, 0x1F2      ; 端口保存 读取几个扇区 
+    mov al, 0x01
+    out dx, al
+    
+    ; Start Section No
+    mov dx, 0x1F3      ; 0x1F3/0x1F4/0x1F5/0x1F6保存起始的逻辑扇区号 
+    mov al, cl
+    out dx, al    
+    inc dx             ; 0x1F4
+    mov al, ch
+    out dx, al
+    inc dx             ; 0x1F5
+    xor ax, ax 
+    out dx, al
+    inc dx             ; 0x1F6
+    mov al, 0xE0       ; 0x1F6端口 高四字节 1X1Y  X表示CHS(0)/LBA Y表示主(0)/副磁盘 
+    out dx, al         ; 1110 - 0xE0 主磁盘 LBA方式读取 
+       
+    ; Read Command
+    mov dx, 0x1F7
+    mov al, 0x20       ; 0x1F7 端口 0x20 表示读取磁盘    
+    out dx, al
+ 
+    ; Test Ready   
+    mov dx, 0x1F7
+ .waits:
+    in al, dx          ; 读取0x1F7，获取磁盘驱动器状态
+    and al, 0x88
+    cmp al, 0x08
+    jnz .waits
+    
+    ; Read data
+    mov dx, 0x1F0     ; 0x1F0 读端口，0x1F1 为错误寄存器，包含磁盘最后一次操作状态码
+    mov cx, 256
+ .readw:
+    in ax, dx
+    mov [ES:DI], ax
+    add di, 2
+    loop .readw
+    
+    pop dx
+    
+    ret        
+```
+
 #### 显示相关 ####
 
 实模式下显示文字比较简单，在实模式下显示为`80x25`的屏幕，一屏显示2000个字符，每个字符占据两个字节，一个字节为字符的ASCII码，另外一个字节为字符的颜色。视频显示的内存被映射到0xB800～0xBFFFF这段物理内存中，要想在屏幕上显示字符，直接修改0xB800处的内存即可。
@@ -40,6 +97,54 @@
 ![4. 字符颜色](2018-01-12-ETU-X86Asm-RealMode-Char-Colors.jpg)
 
 如图3所示，在显存中低字节为字符，高字节为字符颜色。要想从屏幕左上角依次显示字符，则按照word的形式依次填充缓存即可。
+
+现在的显卡虽然发展变化，但是VGA标准支持以及光标控制支持一直保留至今，这主要是因为任何计算机启动前都需要使用字符形式显示。光标在屏幕上的位置保存在显卡内部两个光标寄存器中，每个寄存器8位，合起来形成16位的数值。
+
+标准VGA文本模式是25行，每行80个字符。如果这个16位值为0，则表示屏幕上0行0列，如果值为80，则表示1行0列。每个字符使用两个字节存储在显存中，所以光标位置×2则是显存字符位置。
+
+换行（0x0a），则是跳到当前行的下一行相同位置，将光标位置直接加上80即可；回车（0x0d），则是回到当前行的行首，即光标位置除以80，忽略余数，再乘以80即得光标位置。
+
+获取和设置光标位置的函数如下代码块所示。
+
+```
+;
+; bx save pos info
+;
+set_cursor_pos:
+    push dx
+    mov dx, 0x3d4   ; 重置光标位置
+    mov al, 0x0e
+    out dx, al
+    mov dx, 0x3d5
+    mov al, bh
+    out dx, al
+    mov dx, 0x3d4
+    mov al, 0x0f
+    out dx, al
+    mov dx, 0x3d5
+    mov al, bl
+    out dx, al
+    pop dx
+    ret
+;
+; ax return pos info
+;
+get_cursor_pos:
+    push dx
+    mov dx, 0x3d4   ; 读取光标位置
+    mov al, 0x0e
+    out dx, al
+    mov dx, 0x3d5
+    in al, dx
+    mov ah, al
+    mov dx, 0x3d4
+    mov al, 0x0f
+    out dx, al
+    mov dx, 0x3d5
+    in al, dx
+    pop dx
+    ret
+```
 
 #### Bochs调试 ####
 
@@ -107,11 +212,42 @@ E8跳转中，其后的相对偏移值按照如下的方式计算：
 
 ** 段格式 **
 
-典型的段定义如下所示，header为段名称，align则是指定段的对齐字节，vstart=0则是指定本段的汇编地址从段起始位置开始计算
+典型的段定义如下所示，header为段名称，align则是指定段的对齐字节，vstart=0则是指定本段内的汇编地址从本段起始位置开始计算，而非文件开头计算。
+
 ```
 SECTION header align=16 vstart=0
 ```
 
+vstart=0x7C00，编译后，本段内的地址引用以0x7C00做基地址计算。
+
+在程序中可以使用 section.header.start来当作header段在文件中的偏移值。
+
+** 用户程序 **
+
+用户程序的加载，要有程序信息，在文件最开始位置保存程序信息。
+
+```
+程序的总长度
+入口点
+段重定位表项数
+段重定位表
+```
+
+入口点用一个dw类型偏移，和一个dd类型基地址组成入口点，在重定位时将基地址计算为段地址。
+
+而对于其他的段，则使用dd保存段在编译文件内的偏移，重定位时加上加载基地址，然后计算出段地址。而段内的使用的量不需修改，它们都是基于段起始地址的偏移，只要设置段寄存器，其后的数据都是正确的了。
+
+** equ **
+
+`app_lba_start equ 100`，equ设置量相当于C语言的#define，并不占据编译后文件空间，只是数值代表。
+
+** 32位加法 **
+
+在实模式下为16位，要做32位加法比较困难。可以使用DX:AX表示32位数字，而在做加法时，可以先将AX加上低16位数（add指令），然后将DX加上高16位数（adc指令）。adc指令是带进位的加法指令，即DX加加数高16位，同时加上进位CF。
+
+** resb **
+
+`resb 256`预留256字节空间，不初始化。同类指令还有resw，resd等
 
 #### 汇编指令 ####
 
