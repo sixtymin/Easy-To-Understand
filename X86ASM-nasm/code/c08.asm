@@ -222,6 +222,7 @@ code2_start:
     push es
     push di
     mov ax, 0xb800
+    mov es, ax
     xor di, di
     mov ah, 0x04
     mov al, '@'

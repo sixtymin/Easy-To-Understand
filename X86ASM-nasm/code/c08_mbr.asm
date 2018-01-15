@@ -11,8 +11,7 @@ SECTION mbr align=16 vstart=0x7C00
     phy_base      dd  0x10000
         
 start: 
-    xor ax, ax     
-    mov es, ax
+    xor ax, ax
     mov ds, ax    
     mov ss, ax
     mov sp, 0x7C00
@@ -33,11 +32,11 @@ start:
     mov bx, 512
     div bx
     cmp dx, 0
-    jz b1
-    inc ax
-  b1: 
+    jnz b1
     dec ax
-    
+  b1:
+    cmp ax, 0
+    jz direct
     mov cx, ax
     push es
     mov bx, (app_lba_start + 1)
@@ -52,9 +51,9 @@ readsecs:
     pop cx
     inc bx       ; 下一个扇区 
     loop readsecs    
-    
-    ; 重定位
-    pop es
+    pop es       ; 重定位
+        
+ direct:        
     mov di, 0x6
     mov ax, [es:di]
     mov dx, [es:di + 0x2]
