@@ -174,23 +174,24 @@ start:
     call set_cursor_pos
     
     mov bx, msg0
-    call put_sting
-
-    mov bx, prgoff
-    ;mov ax, retaddr
-    mov word [es:bx], retaddr
-    mov bx, code2seg    
-    mov ax, [es:bx]
-    push ax
-    push 0
-    retf
+    ;call put_sting
+    mov cx, 0x20
     
-  retaddr:
-    mov bx, data2seg
-    mov ax, [es:bx]
-    mov ds, ax
-    mov bx, msg1
-    call put_sting
+ int10:
+    mov ah, 0x0e
+    mov al, [bx]
+    int 0x10
+    inc bx
+    loop int10
+
+ .reps:
+    mov ah, 0x00
+    int 0x16
+    
+    mov ah, 0x0e  ; int 0x16 执行完了，键盘输入字符就在al中 
+    mov bl, 0x07
+    int 0x10
+    jmp .reps    
     
     jmp $            
 

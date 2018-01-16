@@ -159,45 +159,154 @@ mov_word:
     pop es
     ret 
 
+;
+; param: ax
+;
+bcd_to_ascii:
+    mov ah, al
+    shr ah, 4
+    or ah, 0x30
+    and al, 0x0F
+    or al, 0x30
+    ret 
+    
+;
+; New Int 0x70
+; 
+new_int_0x70:
+    push ax
+    push bx
+    push cx
+    push dx
+    push es
+    
+ .w0:
+    mov al, 0x0a
+    or al, 0x80
+    out 0x70, al
+    in al, 0x71
+    test al, 0x80
+    jnz .w0
+    
+    xor al, al
+    or al, 0x80
+    out 0x70, al
+    in al, 0x71
+    push ax
+    
+    mov al, 2
+    or al, 0x80
+    out 0x70, al
+    in al, 0x71
+    push ax
+    
+    mov al, 4
+    or al, 0x80
+    out 0x70, al
+    in al, 0x71
+    push ax
+    
+    mov al, 0x0c
+    out 0x70, al
+    in al, 0x71
+    
+    mov ax, 0xb800
+    mov es, ax
+    
+    pop ax
+    call bcd_to_ascii
+    mov bx, 11*160 + 35*2
+    
+    mov [es:bx], ah
+    mov [es:bx+2], al
+    
+    mov al, ':'
+    mov [es:bx+4], al
+    not byte [es:bx+5]
+    
+    pop ax
+    call bcd_to_ascii
+    mov [es:bx+6], ah
+    mov [es:bx+8], al
+    
+    mov al, ':'
+    mov [es:bx +10], al
+    not byte [es:bx + 11]
+    
+    pop ax
+    call bcd_to_ascii
+    mov [es:bx+12], ah
+    mov [es:bx+14], al
+    
+    mov al, 0x20    ; 中断结束命令 EOI 
+    out 0xa0, al    ; 8259 主片和从片 
+    out 0x20, al
+    
+    pop es
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    iret 
+
 start:
     mov ax, [stackseg]    ; 切换栈 
     mov ss, ax
     mov sp, stack_end
 
-    cli
-    
-    sti
-    
-    mov ax, [data1seg] 
+    mov ax, [data1seg]
     mov ds, ax
-    
     call screen_cls       ; 清屏
     xor bx, bx
-    call set_cursor_pos
-    
+    call set_cursor_pos   ; 重置光标位置
     mov bx, msg0
-    call put_sting
+    call put_sting        ; 输出字符串
     
-    jmp $            
+    cli
+    
+    push es
+    xor ax, ax
+    mov es, ax
+    
+    mov ax, cs
+    mov [es:0x1c2], ax
+    mov ax, new_int_0x70    
+    mov [es:0x1c0], ax
+    pop es
+    
+    mov al, 0xb
+    or al, 0x80
+    out 0x70, al
+
+    ; 00010010 允许更新周期发生，禁止周期性中断，禁止闹钟，
+    ; 允许更新周期结束中断，24小时制，日期时间用BCD编码    
+    mov al, 0x12
+    out 0x71, al
+    
+    mov al, 0xc
+    out 0x70, al
+    in al, 0x71
+    
+    in al, 0xa1
+    and al, 0xfe
+    out 0xa1, al
+    
+    sti   
+    
+    mov ax, 0xB800
+    mov es, ax
+    mov byte [es:0x722], '@'
+    mov byte [es:0x723], 0x04    
+    
+    ;jmp $
+  hlt_set:
+    hlt      
+    not byte [es:0x723]          
+    jmp hlt_set             
 
 SECTION data1 align=16 vstart=0
 
-    msg0 db '  This is NASM - the famous Netwide Assembler. '
-         db 'Back at SourceForge and in intensive development! '
-         db 'Get the current versions from http://www.nasm.us/.'
-         db 0x0d,0x0a,0x0d,0x0a
-         db '  Example code for calculate 1+2+...+1000:',0x0d,0x0a,0x0d,0x0a
-         db '     xor dx,dx',0x0d,0x0a
-         db '     xor ax,ax',0x0d,0x0a
-         db '     xor cx,cx',0x0d,0x0a
-         db '  @@:',0x0d,0x0a
-         db '     inc cx',0x0d,0x0a
-         db '     add ax,cx',0x0d,0x0a
-         db '     adc dx,0',0x0d,0x0a
-         db '     inc cx',0x0d,0x0a
-         db '     cmp cx,1000',0x0d,0x0a
-         db '     jle @@',0x0d,0x0a
-         db '     ... ...(Some other codes)',0x0d,0x0a,0x0d,0x0a
+    msg0 db 'User Program Time:',
          db 0
 
 ;===============================================================================
