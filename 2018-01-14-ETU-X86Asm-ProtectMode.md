@@ -112,6 +112,19 @@ xchg ax, bx
 xchg eax, ebx
 ```
 
+**bswap**: 交换字节
+
+**cpuid**: 
+
+**cmovcc**: 
+
+**movzx**: movsx
+
+**cmpsb**: cmpsw, cmpsd 
+
+**xlat**: 
+
+
 #### Bochs调试 ####
 
 **info gdt**：查看GDT表所有内容，info gdt 2，查看索引为2的GDT表项内容。相同的还有info ldt

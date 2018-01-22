@@ -9,3 +9,6 @@ Desktop.ini
 # C Program
 *.obj
 *.o
+
+# log file
+*.log
