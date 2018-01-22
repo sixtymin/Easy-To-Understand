@@ -4,16 +4,18 @@
 
 app_prog_lba       equ     10   ; 应用程序所在的起始扇区号
 
+core_code_seg_sel  equ     0x38
+
+
 [bits 32]
 
 SECTION core_header align=16 vstart=0
     core_length     dd  core_end
     sys_funcs_off   dd  section.sys_routine.start    
-    sys_seg         dd  0
     coredata_off    dd  section.core_data.start
-    coredata_seg    dd  0
     corecode_off    dd  section.core_code.start
-    corecode_seg    dd  0
+    entry_off       dd  section.core_code.start    
+    enty_seg        dd  0
     
     salt_1 db '@PrintString'
            times 256 - ($-salt_1) db 0

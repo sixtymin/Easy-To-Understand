@@ -3,8 +3,13 @@
 ;
 ; 按照作者的代码，将保护模式的代码段基地址设置为0x7c00，段限制设置为0x1FF，512字节
 ; 如果使用作者的形式，这里不能定义vstart=0x7C00，否则段访问会出错
-; 如果要编译成vstart=0x7c00，那么必须将代码段的描述符修改一下，比如基地址0，段限制64K 
+; 如果要编译成vstart=0x7c00，那么必须将代码段的描述符修改一下，比如基地址0，段限制64K
+
+core_code_lba     equ   1
+
+ 
 SECTION mbr align=16 vstart=0x7C00
+
 [bits 16]
     jmp near start    
    
@@ -33,6 +38,49 @@ cls_screen:
     pop ax
     pop es
     ret   
+       
+;
+; make gdt descriptor
+; Param:
+;    EDX  Base
+;    EAX    
+;    ECX  limit    
+make_gdt_descriptor:
+    push edx
+    push ecx
+    push ebx
+    push eax
+
+    mov ebx, edx
+    and ebx, 0x0000FFFF
+    shl ebx, 16
+    or bx, ax
+    
+    sgdt [pgdt]
+    mov esi, dword [pgdt+2]
+    xor edi, edi
+    mov di, word [pgdt]
+    shl di, 3
+    inc di
+    mov dword [esi + edi * 8], ebx
+    
+    mov ebx, edx
+    and ebx, 0xFFFF0000
+    rol ebx, 8
+    bswap ebx
+    and eax, 0x000F0000
+    shr eax, 8
+    or ax, cx
+    shl ecx, 8
+    and ecx, 0x00FFFF00
+    or ebx, ecx
+    mov dword [esi + edi * 8 + 4], ebx 
+        
+    pop eax
+    pop ebx
+    pop ecx
+    pop edx
+    ret     
             
 start: 
     xor ax, ax   
@@ -55,21 +103,21 @@ start:
     mov dword [bx + 4*0], 0x0
     mov dword [bx + 4*1], 0x0
     
-    ; descriptor 1 data segment
+    ; descriptor 1 data segment   0000_0000 0000_1000
     mov dword [bx + 4*2], 0x0000FFFF
     mov dword [bx + 4*3], 0x00CF9200
     
-    ; descriptor 2  code segment
+    ; descriptor 2  code segment  0000_0000 0001_0000
     mov dword [bx + 4*4], 0x0000FFFF
     mov dword [bx + 4*5], 0x00409800
-    
-    ; descriptor 3  code segment 2
-    mov dword [bx + 4*6], 0x0000FFFF
-    mov dword [bx + 4*7], 0x00409200
 
-    ; descriptor 4  code segment 3
-    mov dword [bx + 4*8], 0x7C00FFFE
-    mov dword [bx + 4*9], 0x00CF9600
+    ; descriptor 3  stack segment 0000_0000 0001_1000
+    mov dword [bx + 4*6], 0x7C00FFFC
+    mov dword [bx + 4*7], 0x00CF9600
+
+    ; descriptor 4  vide segment  0000_0000 0010_0000
+    mov dword [bx + 4*8], 0x80007FFF
+    mov dword [bx + 4*9], 0x00C0920B    
     
     pop ds
     mov word [pgdt], 39 ; + 0x7c00
@@ -89,66 +137,24 @@ start:
     jmp dword 0x0010:flush
     
     [bits 32]
-flush:
-    mov eax, 0x0018 ; data 0x10
-    mov ds, eax
-    
+flush: 
     mov eax, 0x0008
-    mov es, eax
+    mov ds, eax
     mov fs, eax
     mov gs, eax
     
-    mov eax, 0x0020    ; index 4
+    mov eax, 0x0020
+    mov es, eax
+        
+    mov eax, 0x0018    ; index 3
     mov ss, eax
-    xor esp, esp    
+    xor esp, esp
     
-    mov byte [ES:0xB8000], 'P'
-    mov byte [ES:0xB8002], 'r'
-    mov byte [ES:0xB8004], 'o'
-    mov byte [ES:0xB8006], 't'
-    mov byte [ES:0xB8008], 'e'
-    mov byte [ES:0xB800a], 'c'
-    mov byte [ES:0xB800c], 't'
-    mov byte [ES:0xB800e], ' '
-    mov byte [ES:0xB8010], 'm'
-    mov byte [ES:0xB8012], 'o'
-    mov byte [ES:0xB8014], 'd'                                        
-    mov byte [ES:0xB8016], 'e'
-    mov byte [ES:0xB8018], ' '
-    mov byte [ES:0xB801a], 'O'
-    mov byte [ES:0xB801c], 'K'
-    mov byte [ES:0xB801e], '!'
-    
-    ; buble order
-    mov ecx, pgdt-string-1
- @@1:
-    push ecx
-    xor bx, bx
- @@2:
-    mov ax, [string+bx]
-    cmp ah, al
-    jge @@3
-    xchg al, ah
-    mov [string+bx], ax
- @@3:
-    inc bx
-    loop @@2
-    pop ecx
-    loop @@1
-    
-    ; output string
-    mov cx, pgdt-string
-    xor ebx, ebx
- @@4:
-    mov ah, 0x07
-    mov al, [string+ebx]
-    mov [es:0xb80a0 + ebx * 2], ax
-    inc ebx
-    loop @@4
+    ; load core
+           
+
      
     hlt        
-
-    string    db  's0ke4or92xap3fv8giuzjcy5l1m7hd6bnqtw.' 
 
     pgdt      dw  63
               dd  0x00007e00
