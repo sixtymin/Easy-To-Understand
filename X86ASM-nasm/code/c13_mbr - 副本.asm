@@ -13,6 +13,33 @@ SECTION mbr align=16 vstart=0x7C00
 
 [bits 16]
     jmp near start    
+   
+;
+; clear screen
+;   
+;cls_screen:
+;    push es
+;    push ax
+;    push bx
+;    push cx
+;    
+;    mov ax, 0xb800
+;    mov es, ax
+;    xor bx, bx
+;    mov ah, 0x07
+;    mov al, 0x20
+;    mov cx, 2000
+; cls:
+;    mov word [es:bx], ax
+;    add bx, 2
+;    loop cls
+;    
+;    pop cx
+;    pop bx
+;    pop ax
+;    pop es
+;    ret   
+       
 ;
 ; make gdt descriptor
 ; Param:
@@ -54,49 +81,45 @@ make_gdt_descriptor:
 ; EAX: section no.  EDI: memory buffer
 read_hard_disk_section:
     push eax
+    push ebx
     push ecx
     push edx
     push edi
     
-    push eax
-    ;mov ebx, eax
-    ;mov ecx, eax
+    mov ebx, eax
+    mov ecx, eax
     
     mov dx, 0x1F2      ; 接口保存 读取几个扇区 
     mov al, 0x01
     out dx, al
     
     ; Start Section No
-    inc dx  ; mov dx, 0x1F3      ; 0x1F3/0x1F4/0x1F5/0x1F6保存起始扇区号 
-    ;mov al, cl
-    pop eax
+    mov dx, 0x1F3      ; 0x1F3/0x1F4/0x1F5/0x1F6保存起始扇区号 
+    mov al, cl
     out dx, al
         
     inc dx             ; 0x1F4
-    mov cl, 8
-    shl eax, cl
+    mov al, ch
     out dx, al
     
     inc dx             ; 0x1F5
-    shr eax, cl
-    ;mov al, cl 
+    shr ecx, 16
+    mov al, cl 
     out dx, al
     
     inc dx             ; 0x1F6
-    ;mov al, ch
-    shr eax, cl
-    ;and al, 0x0F
+    mov al, ch
+    and al, 0x0F
     or al, 0xE0        ; 0x1F6端口 高四字节 1X1Y  X表示CHS(0)/LBA Y表示主(0)/副磁盘 
     out dx, al         ; 1110 - 0xE0 主磁盘 LBA方式读取 
        
     ; Read Command
-    ;mov dx, 0x1F7
-    inc dx
+    mov dx, 0x1F7
     mov al, 0x20       ; 0x1F7 port 0x20 read disk    
     out dx, al
  
     ; Test Ready   
-    ;mov dx, 0x1F7
+    mov dx, 0x1F7
  .waits:
     in al, dx
     and al, 0x88
@@ -115,6 +138,7 @@ read_hard_disk_section:
     pop edi
     pop edx
     pop ecx
+    pop ebx
     pop eax
     ret
             
@@ -123,6 +147,8 @@ start:
     mov ds, ax
     mov ss, ax
     mov sp, 0x7C00
+    
+    ;call cls_screen
     
     ; install gdt
     mov eax, [pgdt + 2] ; + 0x7c00
@@ -202,9 +228,9 @@ flush:
     
     mov ecx, eax
     mov eax, core_code_lba    
-  readsec:        
+  readsec:
     inc eax
-    add edi, 512  
+    add edi, 512
     call read_hard_disk_section  
     loop readsec
     
@@ -228,7 +254,6 @@ flush:
     mov ecx, 0x0FFFF
     call make_gdt_descriptor            ; 0x38
     
-    mov word [pgdt], 63
     lgdt [pgdt]
 
     jmp [esi + 0x10]
