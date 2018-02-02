@@ -6,4 +6,15 @@ Chapter 9
     
     0x70 中断对应 0x01C0 地址处的中断入口
     
+
+chapter 13 
+
+    b 0x7cbb       // load core
     
+    b 0x7cec       // load all core
+    
+    b 0x7d73       // jmp to core
+    
+    b 0x411c0      //
+    
+    b 0x411de      // jmp to user

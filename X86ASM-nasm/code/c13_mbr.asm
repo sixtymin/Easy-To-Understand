@@ -13,111 +13,7 @@ SECTION mbr align=16 vstart=0x7C00
 
 [bits 16]
     jmp near start    
-;
-; make gdt descriptor
-; Param:
-;    EDX  Base
-;    EAX  attribute 
-;    ECX  limit    
-make_gdt_descriptor:
-    push ebx
-
-    mov ebx, edx
-    shl ebx, 16
-    or bx, cx      ; low 32bits
-    
-    mov esi, dword [pgdt+2]
-    xor eax, eax
-    mov ax,  word [pgdt]
-    add esi, eax
-    inc esi
-    mov dword [esi], ebx
-    add esi, 0x4
-    
-    mov ebx, edx
-    and ebx, 0xFFFF0000
-    rol ebx, 8
-    bswap ebx
-    and eax, 0x000F0000
-    shr eax, 8
-    or ax, cx
-    shl ecx, 8
-    and ecx, 0x00FFFF00
-    or ebx, ecx
-    mov dword [esi], ebx
-        
-    pop ebx
-    ret     
-
-;
-; read a section from disk
-; EAX: section no.  EDI: memory buffer
-read_hard_disk_section:
-    push eax
-    push ecx
-    push edx
-    push edi
-    
-    push eax
-    ;mov ebx, eax
-    ;mov ecx, eax
-    
-    mov dx, 0x1F2      ; 接口保存 读取几个扇区 
-    mov al, 0x01
-    out dx, al
-    
-    ; Start Section No
-    inc dx  ; mov dx, 0x1F3      ; 0x1F3/0x1F4/0x1F5/0x1F6保存起始扇区号 
-    ;mov al, cl
-    pop eax
-    out dx, al
-        
-    inc dx             ; 0x1F4
-    mov cl, 8
-    shl eax, cl
-    out dx, al
-    
-    inc dx             ; 0x1F5
-    shr eax, cl
-    ;mov al, cl 
-    out dx, al
-    
-    inc dx             ; 0x1F6
-    ;mov al, ch
-    shr eax, cl
-    ;and al, 0x0F
-    or al, 0xE0        ; 0x1F6端口 高四字节 1X1Y  X表示CHS(0)/LBA Y表示主(0)/副磁盘 
-    out dx, al         ; 1110 - 0xE0 主磁盘 LBA方式读取 
-       
-    ; Read Command
-    ;mov dx, 0x1F7
-    inc dx
-    mov al, 0x20       ; 0x1F7 port 0x20 read disk    
-    out dx, al
- 
-    ; Test Ready   
-    ;mov dx, 0x1F7
- .waits:
-    in al, dx
-    and al, 0x88
-    cmp al, 0x08
-    jnz .waits
-    
-    ; Read data
-    mov dx, 0x1F0     ; 0x1F0 读端口，0x1F1 为错误寄存器，包含磁盘最后一次操作状态码
-    mov ecx, 256
- .readw:
-    in ax, dx
-    mov word [edi], ax
-    add edi, 2
-    loop .readw       
-    
-    pop edi
-    pop edx
-    pop ecx
-    pop eax
-    ret
-            
+                
 start: 
     xor ax, ax   
     mov ds, ax
@@ -213,27 +109,142 @@ flush:
     mov eax, [core_load_addr + 0x4]
     lea edx, [edi + eax]
     mov eax, 0x00409800
-    mov ecx, 0x0FFFF     
+    mov ecx, 0xFFFFF     
     call make_gdt_descriptor            ; 0x28
+
+    mov esi, dword [pgdt+2]
+    xor ebx, ebx
+    mov bx,  word [pgdt]
+    add esi, ebx
+    inc esi
+    mov dword [esi], eax
+    add esi, 0x4
+    mov dword [esi], edx    
      
     mov eax, [core_load_addr + 0x8]
     lea edx, [edi + eax]
     mov eax, 0x00409200
     mov ecx, 0xFFFFF
     call make_gdt_descriptor            ; 0x30
+
+    add esi, 0x4    
+    mov dword [esi], eax
+    add esi, 0x4
+    mov dword [esi], edx    
            
     mov eax, [core_load_addr + 0xC]
     lea edx, [edi + eax]
     mov eax, 0x00409800
-    mov ecx, 0x0FFFF
+    mov ecx, 0xFFFFF
     call make_gdt_descriptor            ; 0x38
+
+    add esi, 0x4
+    mov dword [esi], eax
+    add esi, 0x4
+    mov dword [esi], edx
     
     mov word [pgdt], 63
     lgdt [pgdt]
 
-    jmp [esi + 0x10]
+    jmp far [edi + 0x10]
      
-    hlt        
+    hlt       
+    
+;
+; make gdt descriptor
+; Param:
+;    EDX  Base
+;    EAX  attribute
+;    ECX  limit
+make_gdt_descriptor:
+    push ebx
+
+    mov ebx, edx
+    shl ebx, 16
+    or bx, cx      ; low 32bits
+        
+    and edx, 0xFFFF0000
+    rol edx, 8
+    bswap edx
+    and ecx, 0x000F0000
+    or eax, ecx
+    or edx, eax    ; high 32bits
+    
+    mov eax, ebx
+
+    pop ebx
+    ret
+
+;----------------------------------------------------------------------
+; Functions
+;
+; read a section from disk
+; EAX: section no.  EDI: memory buffer
+read_hard_disk_section:
+    push eax
+    push ecx
+    push edx
+    push edi
+
+    push eax
+    ;mov ebx, eax
+    ;mov ecx, eax
+
+    mov dx, 0x1F2      ; 接口保存 读取几个扇区
+    mov al, 0x01
+    out dx, al
+
+    ; Start Section No
+    inc dx  ; mov dx, 0x1F3      ; 0x1F3/0x1F4/0x1F5/0x1F6保存起始扇区号
+    ;mov al, cl
+    pop eax
+    out dx, al
+
+    inc dx             ; 0x1F4
+    mov cl, 8
+    shr eax, cl
+    out dx, al
+
+    inc dx             ; 0x1F5
+    shr eax, cl
+    ;mov al, cl
+    out dx, al
+
+    inc dx             ; 0x1F6
+    ;mov al, ch
+    shr eax, cl
+    ;and al, 0x0F
+    or al, 0xE0        ; 0x1F6端口 高四字节 1X1Y  X表示CHS(0)/LBA Y表示主(0)/副磁盘
+    out dx, al         ; 1110 - 0xE0 主磁盘 LBA方式读取
+
+    ; Read Command
+    ;mov dx, 0x1F7
+    inc dx
+    mov al, 0x20       ; 0x1F7 port 0x20 read disk
+    out dx, al
+
+    ; Test Ready
+    ;mov dx, 0x1F7
+ .waits:
+    in al, dx
+    and al, 0x88
+    cmp al, 0x08
+    jnz .waits
+
+    ; Read data
+    mov dx, 0x1F0     ; 0x1F0 读端口，0x1F1 为错误寄存器，包含磁盘最后一次操作状态码
+    mov ecx, 256
+ .readw:
+    in ax, dx
+    mov word [edi], ax
+    add edi, 2
+    loop .readw
+
+    pop edi
+    pop edx
+    pop ecx
+    pop eax
+    ret     
 
     pgdt      dw  63
               dd  0x00007e00

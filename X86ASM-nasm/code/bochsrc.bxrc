@@ -2,7 +2,7 @@
 plugin_ctrl: unmapped=1, biosdev=1, speaker=1, extfpuirq=1, parallel=1, serial=1, gameport=1, iodebug=1
 config_interface: win32config
 display_library: win32
-memory: host=32, guest=32
+memory: host=512, guest=512
 romimage: file="E:\Program Files\Bochs-2.6.8/BIOS-bochs-latest"
 vgaromimage: file="E:\Program Files\Bochs-2.6.8/VGABIOS-lgpl-latest"
 boot: disk

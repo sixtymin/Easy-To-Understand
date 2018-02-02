@@ -2,7 +2,8 @@
 ; Core
 ;
 
-app_prog_lba       equ     10   ; 应用程序所在的起始扇区号
+app_prog_lba       equ     20   ; 应用程序所在的起始扇区号
+app_prog_startoff  equ     0x10 ; 应用程序起始偏移 
 
 core_code_seg_sel   equ    0x38
 core_data_seg_sel   equ    0x30
@@ -11,17 +12,37 @@ video_ram_seg_sel   equ    0x20
 core_stack_seg_sel  equ    0x18
 mem_0_4_gb_seg_sel  equ    0x08
 
-[bits 32]
-
-SECTION core_header align=16 vstart=0
     core_length     dd  core_end
     sys_funcs_off   dd  section.sys_routine.start    
     coredata_off    dd  section.core_data.start
     corecode_off    dd  section.core_code.start
     entry_off       dd  start    
-    enty_seg        dd  0
-      
+    enty_seg        dw  core_code_seg_sel
+
+[bits 32]      
 SECTION sys_routine align=16 vstart=0
+
+;
+; BX 保存坐标值
+;
+far_set_cursor_pos:
+    push edx
+    push eax
+    mov dx, 0x3d4   ; 重置光标位置
+    mov al, 0x0e
+    out dx, al
+    mov dx, 0x3d5
+    mov al, bh
+    out dx, al
+    mov dx, 0x3d4
+    mov al, 0x0f
+    out dx, al
+    mov dx, 0x3d5
+    mov al, bl
+    out dx, al
+    pop eax
+    pop edx
+    retf
 
 ;
 ; BX 保存坐标值 
@@ -73,6 +94,7 @@ put_char:
     push edi
     push edx
     push ebx
+    push eax
     
     mov eax, video_ram_seg_sel
     mov es, eax
@@ -94,13 +116,11 @@ put_char:
     jmp crll_screen  ; 是否卷屏 
      
   put_0d:    
-    mov eax, ebx
-    xor edx, edx
-    mov ebx, 80
-    div ebx
-    and eax, 0xFFFFFF00
-    mul ebx
-    mov ebx, eax   
+    mov ax, bx
+    mov bl, 80
+    div bl
+    mul bl
+    mov bx, ax   
     jmp reset_cur  
   put_0a:
     add ebx, 80
@@ -125,6 +145,7 @@ put_char:
   reset_cur: 
     call set_cursor_pos
 
+    pop eax
     pop ebx    
     pop edx
     pop edi
@@ -138,6 +159,7 @@ put_char:
 ;   DS:EBX  指向要输出字符串（0结束符）基地址 
 put_string:
     push ecx
+    push eax
     xor eax, eax
   more:
     mov al, [ebx]
@@ -145,9 +167,10 @@ put_string:
     jz str_end
     mov cl, al
     call put_char
-    inc bx    
+    inc ebx    
     jmp more    
  str_end:
+    pop eax
     pop ecx
     retf    
 ;
@@ -157,6 +180,7 @@ screen_cls:
     push es
     push ecx
     push edi
+    push eax
     
     xor edi, edi    
     mov eax, video_ram_seg_sel
@@ -168,6 +192,7 @@ mov_word:
     add edi, 2
     loop mov_word 
     
+    pop eax
     pop edi
     pop ecx
     pop es
@@ -198,7 +223,7 @@ read_hard_disk_section:
         
     inc dx             ; 0x1F4
     mov cl, 8
-    shl eax, cl
+    shr eax, cl
     out dx, al
     
     inc dx             ; 0x1F5
@@ -359,7 +384,7 @@ make_seg_descriptor:
     
     xor bx, bx
     or edx, ebx
-    and ecx, 0x000F0000   ; 保证段界限的4位为0 
+    and ecx, 0xFFF0FFFF   ; 保证段界限的4位为0 
     or edx, ecx
     
     retf
@@ -415,11 +440,165 @@ SECTION core_data align=16 vstart=0
     cpu_brand1 db 0x0d,0x0a,0x0d,0x0a,0    
     
 SECTION core_code align=16 vstart=0
+
+;
+; load user program, and relocate
+; [IN] 
+;     ESI： start lba
+; [OUT] 
+;     EAX:  user app data seg 
+load_relocate_program:
+    push ebx
+    push ecx
+    push edx
+    push edi
+    push esi 
+    push ds   
+    push es
     
+    mov eax,core_data_seg_sel
+    mov ds,eax                         ;切换DS到内核数据段
+    
+    ; load user program to memory
+    mov eax, esi    
+    mov edi, core_buf
+    call sys_routine_seg_sel:read_hard_disk_section     ; get header
+    
+    mov eax, dword [core_buf]
+    mov ebx, eax
+    and ebx, 0xFFFFFE00
+    add ebx, 512
+    test eax, 0x000001FF
+    cmovnz eax, ebx
+
+    mov ecx, eax
+    call sys_routine_seg_sel:allocate_memory
+    mov edi, ecx
+    
+    xor edx, edx
+    mov ebx, 512
+    div ebx
+    
+    mov ecx, eax
+    mov eax, mem_0_4_gb_seg_sel
+    mov ds, eax
+    
+    push edi
+    mov eax, esi
+ .b1:
+    call sys_routine_seg_sel:read_hard_disk_section
+    inc eax
+    add edi, 512
+    loop .b1
+    
+    ;建立程序头段描述符     0x40 
+    pop edi
+    mov eax, edi
+    mov ebx, [edi+0x4]     ; seg len
+    dec ebx
+    mov ecx, 0x00409200    ; attributes
+    call sys_routine_seg_sel:make_seg_descriptor
+    call sys_routine_seg_sel:set_up_gdt_descriptor
+    mov [edi + 0x04], cx
+    
+    ;建立程序代码段描述符   0x48 
+    mov eax,edi
+    add eax,[edi+0x14]                 ;代码起始线性地址
+    mov ebx,[edi+0x18]                 ;段长度
+    dec ebx                            ;段界限
+    mov ecx,0x00409800                 ;字节粒度的代码段描述符
+    call sys_routine_seg_sel:make_seg_descriptor
+    call sys_routine_seg_sel:set_up_gdt_descriptor
+    mov [edi+0x14],cx
+
+    ;建立程序数据段描述符   0x50
+    mov eax,edi
+    add eax,[edi+0x1c]                 ;数据段起始线性地址
+    mov ebx,[edi+0x20]                 ;段长度
+    dec ebx                            ;段界限
+    mov ecx,0x00409200                 ;字节粒度的数据段描述符
+    call sys_routine_seg_sel:make_seg_descriptor
+    call sys_routine_seg_sel:set_up_gdt_descriptor
+    mov [edi+0x1c],cx
+
+    ;建立程序堆栈段描述符   0x58
+    mov ecx,[edi+0x0c]                 ;4KB的倍率 
+    mov ebx,0x000fffff
+    sub ebx,ecx                        ;得到段界限
+    mov eax,4096                        
+    mul dword [edi+0x0c]                         
+    mov ecx,eax                        ;准备为堆栈分配内存 
+    call sys_routine_seg_sel:allocate_memory
+    add eax,ecx                        ;得到堆栈的高端物理地址 
+    mov ecx,0x00c09600                 ;4KB粒度的堆栈段描述符
+    call sys_routine_seg_sel:make_seg_descriptor
+    call sys_routine_seg_sel:set_up_gdt_descriptor
+    mov [edi+0x08],cx
+
+    ;重定位SALT
+    mov eax,[edi+0x04]
+    mov es,eax                         ;es -> 用户程序头部 
+    mov eax,core_data_seg_sel
+    mov ds,eax
+      
+    cld
+
+    mov ecx,[es:0x24]                  ;用户程序的SALT条目数
+    mov edi,0x28                       ;用户程序内的SALT位于头部内0x2c处
+  .b2: 
+    push ecx
+    push edi
+      
+    mov ecx,salt_items
+    mov esi,salt
+  .b3:
+    push edi
+    push esi
+    push ecx
+
+    mov ecx,64                         ;检索表中，每条目的比较次数 
+    repe cmpsd                         ;每次比较4字节 
+    jnz .b4
+    mov eax,[esi]                      ;若匹配，esi恰好指向其后的地址数据
+    mov [es:edi-256],eax               ;将字符串改写成偏移地址 
+    mov ax,[esi+4]
+    mov [es:edi-252],ax                ;以及段选择子 
+  .b4:
+      
+    pop ecx
+    pop esi
+    add esi,salt_item_len
+    pop edi                            ;从头比较 
+    loop .b3
+      
+    pop edi
+    add edi,256
+    pop ecx
+    loop .b2
+
+    mov ax,[es:0x04]
+
+    pop es                             ;恢复到调用此过程前的es段 
+    pop ds                             ;恢复到调用此过程前的ds段
+            
+    pop esi
+    pop edi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+    
+    ;
+    ; Core Start Address
     ;
 start:
     mov ecx, core_data_seg_sel
     mov ds, ecx
+
+    call sys_routine_seg_sel:screen_cls  ; 清屏
+    
+    xor ebx, ebx 
+    call sys_routine_seg_sel:far_set_cursor_pos ; 设置光标位置 
     
     mov ebx, message_1
     call sys_routine_seg_sel:put_string
@@ -456,13 +635,16 @@ start:
     call sys_routine_seg_sel:put_string
 
     ; load user program
+    mov esi, app_prog_lba
+    call load_relocate_program
 
     mov ebx, do_status
     call sys_routine_seg_sel:put_string
 
     ; call user program
-    
-    ;jmp far [0x10]        
+    mov [esp_pointer], esp
+    mov ds, ax    
+    jmp far [app_prog_startoff]        
 return_point:
     mov eax, core_data_seg_sel
     mov ds, eax
