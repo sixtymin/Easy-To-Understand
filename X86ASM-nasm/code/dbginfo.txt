@@ -18,3 +18,4 @@ chapter 13
     b 0x411c0      //
     
     b 0x411de      // jmp to user
+    b 0x41240      // call gate

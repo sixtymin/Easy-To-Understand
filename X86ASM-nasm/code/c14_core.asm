@@ -389,6 +389,30 @@ make_seg_descriptor:
     
     retf
 
+; EAX - [IN] line base address
+; EBX - [IN] selector
+; ECX - [IN] attributes
+;
+; EDX:EAX - [OUT] descriptor
+;
+make_gate_descriptor:
+    push ebx
+    push ecx
+    
+    mov edx, eax
+    and eax, 0x0000FFFF
+    shl ebx, 16
+    and ebx, 0xFFFF0000
+    or eax, ebx
+
+    and edx, 0xFFFF0000
+    and ecx, 0x0000FFFF   
+    or edx, ecx
+    
+    pop ecx
+    pop ecx
+    retf
+    
 SECTION core_data align=16 vstart=0
     pgdt      dw   0
               dd   0
@@ -422,6 +446,7 @@ SECTION core_data align=16 vstart=0
               db 'core is loaded,and the video display '
               db 'routine works perfectly.',0x0d,0x0a,0
                    
+    message_2 db ' Output string by call gate.', 0x0d, 0x0a, 0
     message_5 db ' Loading user program...',0
     
     do_status db 'Done.', 0x0d, 0x0a,0
@@ -630,10 +655,32 @@ start:
     call sys_routine_seg_sel:put_string    
     mov ebx, cpu_brand1
     call sys_routine_seg_sel:put_string
+           
+    ; setup call gate
+    mov ecx, salt_items
+    mov edi, salt
+ .stgate:
+    push ecx
     
+    mov eax, [edi + 256]
+    mov bx, [edi + 260]
+    mov cx, 1_11_0_1100_000_00000b 
+    call sys_routine_seg_sel:make_gate_descriptor
+    call sys_routine_seg_sel:set_up_gdt_descriptor
+    or cx, 0x03      ; Ring3 ø…“‘∑√Œ      
+    mov word [edi + 260], cx
+    
+    add edi, salt_item_len
+    pop ecx
+    loop .stgate
+    
+    mov ebx, message_2
+    mov edi, salt
+    call far [edi + 256] 
+
     mov ebx, message_5
     call sys_routine_seg_sel:put_string
-
+  
     ; load user program
     mov esi, app_prog_lba
     call load_relocate_program
