@@ -464,29 +464,7 @@ SECTION core_data align=16 vstart=0
     cpu_brand times 52 db 0
     cpu_brand1 db 0x0d,0x0a,0x0d,0x0a,0    
     
-    tcb_chain  dd 0   ; 任务控制块链 
-
-;======================================================================    
 SECTION core_code align=16 vstart=0
-
-;
-; EDX:EAX = 描述符
-; EBX=TCB基地址
-; 
-; CX=描述符的选择子 
-;
-fill_descriptor_in_ldt:
-    
-    push eax
-    push edx
-    push edi
-    push ds
-    
-    mov ecx, mem_0_4_gb_seg_sel
-    mov ds, ecx
-    
-    mov edi, [ebx+0x0c]  ; LDT基地址 
-
 
 ;
 ; load user program, and relocate
@@ -635,43 +613,6 @@ load_relocate_program:
     pop ebx
     ret
     
-;
-;
-;
-append_to_tcb_link:
-    push eax
-    push edx
-    push ds
-    push es
-    
-    mov eax, core_data_seg_sel
-    mov ds, eax
-    mov eax, mem_0_4_gb_seg_sel
-    mov es, eax
-    
-    mov dword [es: ecx+0x00], 0   ; 结构体第一项清0，表示之后没内容了
-    
-    mov eax, [tcb_chain]
-    or eax, eax
-    jz .notcb
- .searc:
-    mov edx, eax
-    mov eax, [es: edx + 0x00]
-    or eax, eax
-    jnz .searc
-    
-    mov [es:edx + 0x00], ecx
-    jmp .retpc
- .notcb:
-    mov [tcb_chain], ecx ; 空表，直接将头指针指向新分配
-    
- .retpc:    
-    pop es
-    pop ds
-    pop edx
-    pop eax
-    ret    
-    
     ;
     ; Core Start Address
     ;
@@ -734,17 +675,14 @@ start:
     loop .stgate
     
     mov ebx, message_2
-    call far [salt + 256] 
+    mov edi, salt
+    call far [edi + 256] 
 
     mov ebx, message_5
     call sys_routine_seg_sel:put_string
-    
-    mov ecx, 0x46
-    call sys_routine_seg_sel:allocate_memory
-    call append_to_tcb_link
-    
-    push app_prog_lba      ; 
-    push ecx
+  
+    ; load user program
+    mov esi, app_prog_lba
     call load_relocate_program
 
     mov ebx, do_status
