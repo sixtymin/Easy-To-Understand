@@ -412,6 +412,25 @@ make_gate_descriptor:
     pop ecx
     pop ecx
     retf
+
+terminate_current_task:
+    pushfd
+    mov edx, [esp]
+    add esp, 4
+    
+    mov eax, core_data_seg_sel
+    mov ds, eax
+    
+    test dx, 0100_0000_0000_0000B
+    jnz .b1
+    mov ebx, core_msg1
+    call sys_routine_seg_sel:put_string
+    jmp far [prgman_tss]
+    
+  .b1:
+    mov ebx, core_msg0
+    call sys_routine_seg_sel:put_string
+    iretd    
     
 SECTION core_data align=16 vstart=0
     pgdt      dw   0
@@ -435,8 +454,8 @@ SECTION core_data align=16 vstart=0
               dw   sys_routine_seg_sel
     salt_4    db   '@TerminateProgram'
               times 256-($-salt_4) db 0
-              dd   return_point
-              dw   core_code_seg_sel
+              dd   terminate_current_task
+              dw   sys_routine_seg_sel
     
     salt_item_len equ $-salt_4
     salt_items    equ 4;($-salt)/salt_item_len
@@ -458,14 +477,42 @@ SECTION core_data align=16 vstart=0
     
     core_buf times 2048 db 0
     
-    esp_pointer dd 0 ;内核用来临时保存自己的栈指针
-    
     cpu_brand0 db 0x0d,0x0a,' ',0
     cpu_brand times 64 db 0
     cpu_brand1 db 0x0d,0x0a,0x0d,0x0a,0    
     
-    tcb_chain  dd 0   ; 任务控制块链 
+    tcb_chain  dd 0   ; 任务控制块链
+    
+    ;程序管理器的任务信息
+    prgman_tss dd 0   ; 程序管理器TSS基地址                               
+               dw 0   ; 程序管理器TSS描述符选择子
+               
+    prgman_msg1 db  0x0d, 0x0a
+                db  '[Program Manager]: Hello! I am Program Manager,'
+                db  'run at CPL=0.Now, create user task and switch '
+                db  'to it by the CALL instruction...', 0x0d, 0x0a, 0
+                
+    prgman_msg2 db  0x0d, 0x0a
+                db  '[Program Manager]: I am glad to regain control.'
+                db  'Now, create another user task and switch to '
+                db  'it by the JMP instruction...', 0x0d, 0x0a, 0
+    
+    prgman_msg3 db  0x0d, 0x0a
+                db  '[PROGRAM MANAGER]: I gain control again,'
+                db  'HALT...',0
 
+    core_msg0   db  0x0d,0x0a
+                db  '[SYSTEM CORE]: Uh...This task initiated with '
+                db  'CALL instruction or an exeception/ interrupt,'
+                db  'should use IRETD instruction to switch back...'
+                db  0x0d,0x0a,0
+
+    core_msg1   db  0x0d,0x0a
+                db  '[SYSTEM CORE]: Uh...This task initiated with '
+                db  'JMP instruction,  should switch to Program '
+                db  'Manager directly by the JMP instruction...'
+                db  0x0d,0x0a,0     
+core_data_end:
 ;======================================================================    
 SECTION core_code align=16 vstart=0
 
@@ -766,6 +813,32 @@ load_relocate_program:
     mov [es:ecx+102],dx                ;到TSS中 
       
     mov word [es:ecx+100],0            ;T=0
+    
+    mov dword [es:ecx+28], 0           ; CR3
+    
+    ; 应用程序头部，获取数据填充TSS
+    mov ebx, [ebp+11*4]                ; TCB 基地址 
+    mov edi, [es:ebx+0x06]             ; 用户程序加载基地址 
+    
+    mov edx, [es:edi+0x10]             ; 设置程序入口
+    mov [es:ecx+32], edx               ; TSS中
+    
+    mov dx,[es:edi+0x14]               ;登记程序代码段（CS）选择子
+    mov [es:ecx+76],dx                 ;到TSS中
+
+    mov dx,[es:edi+0x08]               ;登记程序堆栈段（SS）选择子
+    mov [es:ecx+80],dx                 ;到TSS中
+
+    mov dx,[es:edi+0x04]               ;登记程序数据段（DS）选择子
+    mov word [es:ecx+84],dx            ;到TSS中。注意，它指向程序头部段
+      
+    mov word [es:ecx+72],0             ;TSS中的ES=0
+    mov word [es:ecx+88],0             ;TSS中的FS=0
+    mov word [es:ecx+92],0             ;TSS中的GS=0
+
+    pushfd
+    pop edx         
+    mov dword [es:ecx+36],edx          ;EFLAGS，复用程序管理器程序的EFLAGS    
        
     ;在GDT中登记TSS描述符
     mov eax,[es:esi+0x14]              ;TSS的起始线性地址
@@ -824,6 +897,9 @@ append_to_tcb_link:
 start:
     mov ecx, core_data_seg_sel
     mov ds, ecx
+    
+    mov ecx,mem_0_4_gb_seg_sel         ;令ES指向4GB数据段 
+    mov es,ecx    
 
     call sys_routine_seg_sel:screen_cls  ; 清屏
     
@@ -882,6 +958,34 @@ start:
     mov ebx, message_2         ; gate call
     call far [salt + 256] 
 
+    ; 分配内核任务
+    mov ecx, 104
+    call sys_routine_seg_sel:allocate_memory
+    mov [prgman_tss + 0x00], eax
+    
+    ; 填充TSS中的必要内容
+    mov word [es:ecx + 96], 0    ; LDT 描述符字段设为0
+    mov word [es:ecx + 102], 103 ; I/O位图，0特权级不需要
+    mov word [es:ecx + 0], 0     ; 反向链，没有嵌套
+    mov dword [es:ecx + 28], 0   ; CR3(PDBR)设置为0，没有启用分页
+    mov word [es:ecx + 100], 0   ; T=0
+                                 ; 其他特权级的堆栈也不需要
+    ; 创建TSS描述符，安装GDT
+    mov eax, ecx
+    mov ebx, 103
+    mov ecx, 0x00408900  
+    call sys_routine_seg_sel:make_seg_descriptor
+    call sys_routine_seg_sel:set_up_gdt_descriptor
+    mov [prgman_tss+0x04], cx    ; 程序管理器的TSS描述符选择子
+    
+    ; 任务寄存器TR中内容是任务存在标志，决定了当前任务是谁
+    ; 下面指令为当前正在执行的0特权级，任务管理器 补充TSS内容 
+    ltr cx    
+
+    ; 认为在"任务管理器"任务正在执行中 
+    mov ebx, prgman_msg1
+    call sys_routine_seg_sel:put_string 
+
     mov ebx, message_5
     call sys_routine_seg_sel:put_string
     
@@ -897,40 +1001,47 @@ start:
     mov ebx, do_status         ; Done.
     call sys_routine_seg_sel:put_string
 
-    mov eax, mem_0_4_gb_seg_sel
-    mov ds, eax
-    
-    ltr [ecx+0x18]
-    lldt [ecx+0x10]
-    
+    ;mov eax, mem_0_4_gb_seg_sel
+    ;mov ds, eax
+    ;
+    ;ltr [ecx+0x18]
+    ;lldt [ecx+0x10]
+    ;
     ; 假装从调用门返回，模仿处理器压入的retf处理 
-    mov eax, [ecx+0x44]
-    mov ds, eax
+    ;mov eax, [ecx+0x44]
+    ;mov ds, eax
+    ;
+    ;push dword [0x08]
+    ;push dword 0
+    ;
+    ;push dword [0x14]
+    ;push dword [0x10]
+    ;    
+    ;retf
+    ;
     
-    push dword [0x08]
-    push dword 0
+    call far [es:ecx+0x14]    ; 执行任务切换，和上一章不同，任务切换时要恢复TSS内容
+                              ; 所以在创建任务时TSS要填写完整 
+    ; 重新加载并切换任务
+    mov ebx, prgman_msg2
+    call sys_routine_seg_sel:put_string
     
-    push dword [0x14]
-    push dword [0x10]
-        
-    retf
+    mov ecx, 0x46
+    call sys_routine_seg_sel:allocate_memory
+    call append_to_tcb_link
+    ; 加载用户程序，压栈 用户程序的LBA/加载地址
+    push app_prog_lba      ;
+    push ecx
+    call load_relocate_program
 
-    ; call user program
-    ;mov [esp_pointer], esp
-    ;mov ds, ax    
-    ;jmp far [app_prog_startoff]        
-return_point:
-    mov eax, core_data_seg_sel
-    mov ds, eax
+    jmp far [es:ecx+0x14]
     
-    mov eax, core_stack_seg_sel
-    mov ss, eax
-    mov esp, [esp_pointer]
-    
-    mov ebx, message_6
+    mov ebx, prgman_msg3
     call sys_routine_seg_sel:put_string
     
     hlt
+
+core_code_end:
     
 SECTION core_trail
 

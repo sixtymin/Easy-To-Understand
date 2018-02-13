@@ -21,11 +21,7 @@ chapter 13
     b 0x41240      // call gate
     
 chapter 14 
-
-    b 0x7cbb       // load core
-    
-    b 0x7cec       // load all core
-    
+ 
     b 0x7d73       // jmp to core
     
     b 0x4149c      // allocate TCB
@@ -36,7 +32,16 @@ chapter 14
     b 0x100874
     
     
+chapter 15
+
+    b 0x7d73       // jmp to core
     
+    b 0x417f3      // call task
+    
+    
+    
+    
+
     
     
     
