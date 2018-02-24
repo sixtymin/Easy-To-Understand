@@ -39,14 +39,19 @@ chapter 15
     b 0x417f3      // call task
     
     
+chapter 16
+
+    b 0x7d73       // jmp to core
     
+    b 0x416e8      // ltr cx
     
+    lb 0x80041727  // load relocate program 
 
     
     
+    lb 0x80041188
     
-    
-    
+    lb 0x800412c3
     
     
     
