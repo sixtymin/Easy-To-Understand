@@ -5,22 +5,28 @@
 app_prog_lba       equ     20   ; 应用程序所在的起始扇区号
 app_prog_startoff  equ     0x10 ; 应用程序起始偏移 
 
-core_code_seg_sel   equ    0x38
-core_data_seg_sel   equ    0x30
-sys_routine_seg_sel equ    0x28
-video_ram_seg_sel   equ    0x20
-core_stack_seg_sel  equ    0x18
-mem_0_4_gb_seg_sel  equ    0x08
+flat_4gb_data_seg_sel  equ    0x18
+flat_4gb_code_seg_sel  equ    0x08
+idt_linear_address     equ    0x8001f000
 
-    core_length     dd  core_end
-    sys_funcs_off   dd  section.sys_routine.start    
-    coredata_off    dd  section.core_data.start
-    corecode_off    dd  section.core_code.start
-    entry_off       dd  start    
-    enty_seg        dw  core_code_seg_sel
+; 
+%macro alloc_core_linear 0
+    mov ebx, [core_tcb+0x06]
+    add dword [core_tcb+0x06], 0x1000
+    call flat_4gb_code_seg_sel:alloc_inst_a_page
+%endmacro
 
-[bits 32]      
-SECTION sys_routine align=16 vstart=0
+%macro alloc_user_linear 0
+    mov ebx, [esi+0x06]
+    add dword [esi+0x06], 0x1000
+    call flat_4gb_code_seg_sel:alloc_inst_a_page
+%endmacro 
+   
+SECTION core align=16 vstart=0
+    core_lenght   dd core_end     ; 程序总长度 
+    core_entry    dd start        ; 核心代码起始地址 
+;
+    [bits 32]
 
 ;
 ; BX 保存坐标值
@@ -88,18 +94,8 @@ get_cursor_pos:
 ; Show a char on screen
 ; cl : output char value
 put_char:
-    push es
-    push ds 
-    push esi
-    push edi
-    push edx
-    push ebx
-    push eax
-    
-    mov eax, video_ram_seg_sel
-    mov es, eax
-    mov ds, eax
-    
+    pushad
+        
     xor eax, eax    
     call get_cursor_pos
     mov ebx, eax
@@ -145,13 +141,7 @@ put_char:
   reset_cur: 
     call set_cursor_pos
 
-    pop eax
-    pop ebx    
-    pop edx
-    pop edi
-    pop esi
-    pop ds
-    pop es
+    popad
     ret      
 ;
 ; Show a string(zero end) on screen
@@ -160,6 +150,8 @@ put_char:
 put_string:
     push ecx
     push eax
+    
+    cli 
     xor eax, eax
   more:
     mov al, [ebx]
@@ -168,8 +160,10 @@ put_string:
     mov cl, al
     call put_char
     inc ebx    
-    jmp more    
+    jmp more
+        
  str_end:
+    sti
     pop eax
     pop ecx
     retf    
@@ -202,6 +196,9 @@ mov_word:
 ; read a section from disk
 ; EAX: section no.  EDI: memory buffer
 read_hard_disk_section:
+    
+    cli
+    
     push eax
     push ecx
     push edx
@@ -265,6 +262,9 @@ read_hard_disk_section:
     pop edx
     pop ecx
     pop eax
+    
+    sti
+    
     retf
 
 ; 
@@ -273,10 +273,6 @@ read_hard_disk_section:
 put_hex_dword:
     
     pushad
-    push ds
-    
-    mov ax, core_data_seg_sel
-    mov ds, ax
     
     mov ebx, bin_hex
     mov ecx, 8
@@ -292,8 +288,7 @@ put_hex_dword:
     pop ecx
     
     loop .xlt
-    
-    pop ds
+  
     popad
     retf
 
@@ -332,15 +327,7 @@ set_up_gdt_descriptor:
     push ebx 
     push edx
     
-    push ds
-    push es
-    
-    mov ebx, core_data_seg_sel
-    mov ds, ebx
-    
     sgdt [pgdt]
-    mov ebx, mem_0_4_gb_seg_sel
-    mov es, ebx
     
     movzx ebx, word [pgdt]
     inc bx
@@ -360,8 +347,6 @@ set_up_gdt_descriptor:
     mov cx, ax
     shl cx, 3
             
-    pop es
-    pop ds
     pop edx
     pop ebx
     pop eax
@@ -412,21 +397,24 @@ make_gate_descriptor:
     pop ecx
     pop ecx
     retf
-
+;
+;
+;
 terminate_current_task:
-    
-    mov eax, core_data_seg_sel
-    mov ds, eax
-    
-    pushfd
-    pop edx
         
-    test dx, 0100_0000_0000_0000B
-    jnz .b1
-    jmp far [prgman_tss]
+    mov eax, tcb_chain
+ .b0:
+    mov ebx, [eax]
+    cmp word [ebx+0x04], 0xffff
+    je .b1
+    mov eax, ebx
+    jmp .b0
     
-  .b1:
-    iretd    
+ .b1: 
+    mov word [ebx+0x04], 0x3333
+ .b2:
+    hlt
+    jmp .b2
 
 ;
 ; 分配一个4K的页 
@@ -436,10 +424,6 @@ allocate_a_4k_page:
    push ebx
    push ecx
    push edx
-   push ds
-   
-   mov eax, core_data_seg_sel
-   mov ds, eax
    
    xor eax, eax
  .b1:
@@ -450,13 +434,12 @@ allocate_a_4k_page:
    jl .b1
    
    mov ebx, message_3
-   call sys_routine_seg_sel:put_string
+   call flat_4gb_code_seg_sel:put_string
    hlt
    
  .b2:
    shl eax, 12
    
-   pop ds
    pop edx
    pop ecx
    pop ebx
@@ -472,10 +455,6 @@ alloc_inst_a_page:
     push eax
     push ebx 
     push esi
-    push ds
-    
-    mov eax, mem_0_4_gb_seg_sel
-    mov ds, eax
     
     mov esi, ebx
     and esi, 0xFFC00000
@@ -508,8 +487,7 @@ alloc_inst_a_page:
     call allocate_a_4k_page ; 分配一个页，要安装的页
     or eax, 0x00000007
     mov [esi], eax 
-            
-    pop ds
+
     pop esi
     pop ebx
     pop eax
@@ -517,21 +495,18 @@ alloc_inst_a_page:
     retf   
     
 create_copy_cur_pdir:
-    push ds
-    push es
+
     push esi
     push edi
     push ebx 
     push ecx
     
-    mov ebx, mem_0_4_gb_seg_sel
-    mov ds, ebx
-    mov es, ebx
-    
     call allocate_a_4k_page
     mov ebx, eax
     or ebx, 0x00000007
     mov [0xFFFFFFF8], ebx
+    
+    invlpg [0xFFFFFFF8]
     
     mov esi, 0xFFFFF000
     mov edi, 0xFFFFE000
@@ -543,13 +518,90 @@ create_copy_cur_pdir:
     pop ebx 
     pop edi
     pop esi
-    pop es
-    pop ds
     retf        
+
+; 通用中断处理过程 
+general_interrupt_handler:
+    push eax
+    
+    mov al, 0x20   ;中断结束命令 EOI 
+    out 0xa0, al   ; 向主片发送 
+    out 0x20, al   ; 向从片发送 
+    
+    pop eax
+    
+    iretd    
+
+; 通用异常处理过程
+general_exception_handler:
+    mov ebx, excep_msg
+    call flat_4gb_code_seg_sel:put_string
+    hlt
+
+rtm_0x70_interrupt_handle:
+    
+    pushad
+    
+    mov al, 0x20
+    out 0xa0, al
+    out 0x20, al
+    
+    mov al, 0x0c
+    out 0x70, al
+    in al, 0x71
+    
+    mov eax, tcb_chain
+    
+ .b0:
+    mov ebx, [eax]
+    or ebx, ebx
+    jz .irtn
+    cmp word [ebx+0x04], 0xffff
+    je .b1
+    mov eax, ebx
+    jmp .b0
+    
+ .b1:
+    mov ecx, [ebx]
+    mov [eax], ecx 
+ .b2:
+    mov edx, [eax]
+    or edx, edx
+    jz .b3
+    mov eax, edx
+    jmp .b2
+ 
+ .b3:
+    mov [eax], ebx
+    mov dword [ebx], 0x00000000
+    
+    mov eax, tcb_chain
+ .b4:
+    mov eax, [eax]
+    or eax, eax
+    jz .irtn
+    cmp word [eax+0x04], 0x0000
+    jnz .b4
+    
+    not word [eax+0x04]
+    not word [ebx+0x04]
+    jmp far [eax + 0x14]   ; 任务切换
+    
+ .irtn
+    popad
+    
+    iretd 
+    
+            
     
 SECTION core_data align=16 vstart=0
     pgdt      dw   0
               dd   0
+    pidt      dw   0
+              dd   0
+    
+    tcb_chain dd   0
+    core_tcb times 32 db 0    ; 内核的TCB 
               
     page_bit_map db 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x55, 0x55, 0xFF
                  db 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
@@ -563,29 +615,29 @@ SECTION core_data align=16 vstart=0
                  
     page_map_len equ $-page_bit_map
               
-    ram_alloc dd   0x00100000
-    
     ; 检索表
     salt:
     salt_1    db   '@PrintString'
               times 256-($-salt_1) db 0
               dd   put_string
-              dw   sys_routine_seg_sel
+              dw   flat_4gb_core_seg_sel
     salt_2    db   '@ReadDiskData'
               times 256-($-salt_2) db 0
               dd   read_hard_disk_section
-              dw   sys_routine_seg_sel
+              dw   flat_4gb_core_seg_sel
     salt_3    db   '@PrintDwordAsHexString'
               times 256-($-salt_3) db 0
               dd   put_hex_dword
-              dw   sys_routine_seg_sel
+              dw   flat_4gb_core_seg_sel
     salt_4    db   '@TerminateProgram'
               times 256-($-salt_4) db 0
               dd   terminate_current_task
-              dw   sys_routine_seg_sel
+              dw   flat_4gb_core_seg_sel
     
     salt_item_len equ $-salt_4
     salt_items    equ 4;($-salt)/salt_item_len
+
+    excep_msg db '*****Exception encounted*****', 0
 
     message_0 db ' Working in system core, protect mode.'
               db 0x0d,0x0a,0
@@ -599,10 +651,8 @@ SECTION core_data align=16 vstart=0
     
     message_3 db '********No more pages********',0
     
-    message_4 db 0x0d,0x0a,' Task switching...@_@',0x0d,0x0a,0
-    
-    message_5 db 0x0d,0x0a,' Processor HALT.',0
-              
+    core_msg0  db ' System core task running', 0x0d, 0x0a, 0
+                  
     bin_hex db '0123456789ABCDEF'
     
     core_buf times 2048 db 0
@@ -610,18 +660,8 @@ SECTION core_data align=16 vstart=0
     cpu_brand0 db 0x0d,0x0a,' ',0
     cpu_brand times 64 db 0
     cpu_brand1 db 0x0d,0x0a,0x0d,0x0a,0    
-    
-    tcb_chain  dd 0   ; 任务控制块链
-    
-    ;程序管理器的任务信息
-    prgman_tss dd 0   ; 程序管理器TSS基地址                               
-               dw 0   ; 程序管理器TSS描述符选择子
-    
-    core_next_laddr dd 0x80100000
-                  
+                   
 core_data_end:
-;======================================================================    
-SECTION core_code align=16 vstart=0
 
 ;
 ; EDX:EAX = 描述符
@@ -634,10 +674,6 @@ fill_descriptor_in_ldt:
     push eax
     push edx
     push edi
-    push ds
-    
-    mov ecx, mem_0_4_gb_seg_sel
-    mov ds, ecx
     
     mov edi, [ebx+0x0c]  ; LDT基地址 
     
@@ -661,8 +697,7 @@ fill_descriptor_in_ldt:
     mov cx, ax
     shl cx, 3
     or cx, 0000_0000_000_0100B
-    
-    pop ds
+
     pop edi
     pop edx
     pop eax
@@ -676,13 +711,8 @@ fill_descriptor_in_ldt:
 ;
 load_relocate_program:
     pushad 
-    push ds   
-    push es
     
     mov ebp, esp       ; 为访问栈上参数准备基准值 
-    
-    mov eax,mem_0_4_gb_seg_sel
-    mov es,eax                         ;切换DS到内核数据段
     
     ; 清空当前页目录的前半部分
     mov ebx, 0xFFFFF000
@@ -692,9 +722,12 @@ load_relocate_program:
     inc esi
     cmp esi, 512
     jl .b1     
+    
+    mov eax, cr3
+    mov cr3, eax     
                 
     ; load user program to memory
-    mov eax, [ebp+12*4]  ; 用户程序起始 LBA    
+    mov eax, [ebp+10*4]  ; 用户程序起始 LBA    
     mov edi, core_buf
     call sys_routine_seg_sel:read_hard_disk_section     ; get header
     

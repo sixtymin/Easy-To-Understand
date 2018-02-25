@@ -7,7 +7,6 @@
 
 core_code_lba     equ   0x00000001
 core_load_addr    equ   0x00040000
-core_code_seg_sel equ   0x0038
  
 SECTION mbr align=16 vstart=0x7C00
 
@@ -33,24 +32,16 @@ start:
     mov dword [bx + 4*0], 0x0
     mov dword [bx + 4*1], 0x0
     
-    ; descriptor 1 data segment   0000_0000 0000_1000   0x0008
+    ; descriptor 1 code segment   0000_0000 0000_1000   0x0008
     mov dword [bx + 4*2], 0x0000FFFF
-    mov dword [bx + 4*3], 0x00CF9200
+    mov dword [bx + 4*3], 0x00CF9800
     
     ; descriptor 2  code segment  0000_0000 0001_0000   0x0010
     mov dword [bx + 4*4], 0x0000FFFF
-    mov dword [bx + 4*5], 0x00409800
-
-    ; descriptor 3  stack segment 0000_0000 0001_1000   0x0018
-    mov dword [bx + 4*6], 0x7C00FFFC
-    mov dword [bx + 4*7], 0x00CF9600
-
-    ; descriptor 4  vide segment  0000_0000 0010_0000   0x0020
-    mov dword [bx + 4*8], 0x80007FFF
-    mov dword [bx + 4*9], 0x00C0920B    
+    mov dword [bx + 4*5], 0x00CF9200
     
     pop ds
-    mov word [pgdt], 39 ; + 0x7c00    
+    mov word [pgdt], 23 ; + 0x7c00    
     lgdt [pgdt]  ; + 0x7c00
     
     in al, 0x92     ; A20 Address Line
@@ -63,22 +54,18 @@ start:
     or eax, 0x1
     mov cr0, eax
     
-    jmp dword 0x0010:flush
+    jmp dword 0x0008:flush
     
     [bits 32]
 flush: 
-    mov eax, 0x0008
+    mov eax, 0x0010
     mov ds, eax
     mov fs, eax
     mov gs, eax
-    
-    mov eax, 0x0020
-    mov es, eax
-        
-    mov eax, 0x0018    ; index 3
+    mov es, eax    
     mov ss, eax
-    xor esp, esp
-    
+    mov esp, 0x7000
+        
     ; load core
     mov eax, core_code_lba
     mov edi, core_load_addr
@@ -104,77 +91,55 @@ flush:
     call read_hard_disk_section  
     loop readsec
     
- setgdt:    
-    mov edi, core_load_addr    
-    mov eax, [core_load_addr + 0x4]
-    lea edx, [edi + eax]
-    mov eax, 0x00409800
-    mov ecx, 0xFFFFF     
-    call make_gdt_descriptor            ; 0x28
-
-    mov esi, dword [pgdt+2]
-    xor ebx, ebx
-    mov bx,  word [pgdt]
-    add esi, ebx
-    inc esi
-    mov dword [esi], eax
-    add esi, 0x4
-    mov dword [esi], edx    
-     
-    mov eax, [core_load_addr + 0x8]
-    lea edx, [edi + eax]
-    mov eax, 0x00409200
-    mov ecx, 0xFFFFF
-    call make_gdt_descriptor            ; 0x30
-
-    add esi, 0x4    
-    mov dword [esi], eax
-    add esi, 0x4
-    mov dword [esi], edx    
-           
-    mov eax, [core_load_addr + 0xC]
-    lea edx, [edi + eax]
-    mov eax, 0x00409800
-    mov ecx, 0xFFFFF
-    call make_gdt_descriptor            ; 0x38
-
-    add esi, 0x4
-    mov dword [esi], eax
-    add esi, 0x4
-    mov dword [esi], edx
+ setgdt: 
     
-    mov word [pgdt], 63
+    ; 创建系统内核的也目录表PDT
+    mov ebx, 0x00020000
+    
+    ; 在页目录内创建指向页目录表自己的目录项
+    mov dword [ebx+4092], 0x00020003
+    
+    mov edx, 0x00021003
+    ; 在页目录内创建于线性地址0x00000000对应的目录项
+    mov [ebx + 0x000], edx
+    ; 创建于线性地址0x80000000对应的目录项 
+    mov [ebx + 0x800], edx
+    
+    ; 创建于上面目录项对应的页表
+    mov ebx, 0x21000 
+    xor eax, eax
+    xor esi, esi
+ .b1:
+    mov edx, eax
+    or edx, 0x00000003
+    mov [ebx + esi*4], edx
+    add eax, 0x1000
+    inc esi
+    cmp esi, 256
+    jl .b1
+    
+    ; CR3寄存器指向页目录，并开启页功能
+    mov eax, 0x00020000  ; PCD=PWT=0
+    mov cr3, eax 
+    
+    ; GDT线性地址映射到从0x80000000开始的相同位置
+    sgdt [pgdt]
+    mov ebx, [pgdt + 2]
+    add dword [pgdt + 2], 0x80000000
     lgdt [pgdt]
-
-    jmp far [edi + 0x10]
+    
+    mov eax, cr0
+    or eax, 0x80000000
+    mov cr0, eax
+    
+    ; 将堆栈映射到高端地址
+    ; 将内核的所有程序都映射到高端
+    add esp, 0x80000000
+    
+    jmp [0x80040004]
      
     hlt       
-    
-;
-; make gdt descriptor
-; Param:
-;    EDX  Base
-;    EAX  attribute
-;    ECX  limit
-make_gdt_descriptor:
-    push ebx
-
-    mov ebx, edx
-    shl ebx, 16
-    or bx, cx      ; low 32bits
-        
-    and edx, 0xFFFF0000
-    rol edx, 8
-    bswap edx
-    and ecx, 0x000F0000
-    or eax, ecx
-    or edx, eax    ; high 32bits
-    
-    mov eax, ebx
-
-    pop ebx
-    ret
-
+ 
 ;----------------------------------------------------------------------
 ; Functions
 ;
@@ -247,7 +212,7 @@ read_hard_disk_section:
     ret     
 
     pgdt      dw  63
-              dd  0x00007e00
+              dd  0x00008000
     
     times 510 - ($-$$) db 0
     db 0x55, 0xaa
