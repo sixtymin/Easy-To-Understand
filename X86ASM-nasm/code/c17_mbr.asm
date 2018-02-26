@@ -211,7 +211,7 @@ read_hard_disk_section:
     pop eax
     ret     
 
-    pgdt      dw  63
+    pgdt      dw  23
               dd  0x00008000
     
     times 510 - ($-$$) db 0

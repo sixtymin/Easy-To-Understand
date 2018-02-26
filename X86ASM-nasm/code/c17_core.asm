@@ -1,13 +1,14 @@
 ;
 ; Core
 ;
-
-app_prog_lba       equ     20   ; 应用程序所在的起始扇区号
+app_prog1_lba      equ     20   ; 应用程序1 所在的起始扇区号
+app_prog2_lba      equ     30   ;
 app_prog_startoff  equ     0x10 ; 应用程序起始偏移 
 
-flat_4gb_data_seg_sel  equ    0x18
+flat_4gb_data_seg_sel  equ    0x10
 flat_4gb_code_seg_sel  equ    0x08
 idt_linear_address     equ    0x8001f000
+video_ram_address      equ    0x800B8000
 
 ; 
 %macro alloc_core_linear 0
@@ -22,7 +23,7 @@ idt_linear_address     equ    0x8001f000
     call flat_4gb_code_seg_sel:alloc_inst_a_page
 %endmacro 
    
-SECTION core align=16 vstart=0
+SECTION core align=16 vstart=0x80040000
     core_lenght   dd core_end     ; 程序总长度 
     core_entry    dd start        ; 核心代码起始地址 
 ;
@@ -171,25 +172,21 @@ put_string:
 ; clean screen 
 ;
 screen_cls:
-    push es
     push ecx
     push edi
     push eax
-    
-    xor edi, edi    
-    mov eax, video_ram_seg_sel
-    mov es, eax
+        
+    mov edi, video_ram_address
     mov ecx, 2000
     mov eax, 0x0720
 mov_word:    
-    mov [es:edi], ax
+    mov [edi], ax
     add edi, 2
     loop mov_word 
     
     pop eax
     pop edi
     pop ecx
-    pop es
     retf 
 
 ;
@@ -292,32 +289,6 @@ put_hex_dword:
     popad
     retf
 
-;
-; ECX - [Input] Size to Alloc
-; ECX - [Output] Alloc Base Address
-allocate_memory:
-    push ds
-    push eax
-    push ebx
-    
-    mov eax, core_data_seg_sel
-    mov ds, eax
-    mov eax, [ram_alloc]
-    add eax, ecx
-    
-    mov ecx, [ram_alloc]
-    mov ebx, eax
-    and ebx, 0xFFFFFFFC
-    add ebx, 4
-    test eax, 0x00000003
-    cmovnz eax, ebx
-    mov [ram_alloc], eax
-    
-    pop ebx
-    pop eax
-    pop ds
-    
-    retf
 
 ; EDX:EAX - [IN]  descriptor item
 ; CX - [OUT] selector
@@ -587,14 +558,13 @@ rtm_0x70_interrupt_handle:
     not word [ebx+0x04]
     jmp far [eax + 0x14]   ; 任务切换
     
- .irtn
+ .irtn:
     popad
     
-    iretd 
+    iretd                 
     
-            
-    
-SECTION core_data align=16 vstart=0
+;======================================
+; data    
     pgdt      dw   0
               dd   0
     pidt      dw   0
@@ -620,19 +590,19 @@ SECTION core_data align=16 vstart=0
     salt_1    db   '@PrintString'
               times 256-($-salt_1) db 0
               dd   put_string
-              dw   flat_4gb_core_seg_sel
+              dw   flat_4gb_code_seg_sel
     salt_2    db   '@ReadDiskData'
               times 256-($-salt_2) db 0
               dd   read_hard_disk_section
-              dw   flat_4gb_core_seg_sel
+              dw   flat_4gb_code_seg_sel
     salt_3    db   '@PrintDwordAsHexString'
               times 256-($-salt_3) db 0
               dd   put_hex_dword
-              dw   flat_4gb_core_seg_sel
+              dw   flat_4gb_code_seg_sel
     salt_4    db   '@TerminateProgram'
               times 256-($-salt_4) db 0
               dd   terminate_current_task
-              dw   flat_4gb_core_seg_sel
+              dw   flat_4gb_code_seg_sel
     
     salt_item_len equ $-salt_4
     salt_items    equ 4;($-salt)/salt_item_len
@@ -710,6 +680,7 @@ fill_descriptor_in_ldt:
 ;     push TCB-addr
 ;
 load_relocate_program:
+
     pushad 
     
     mov ebp, esp       ; 为访问栈上参数准备基准值 
@@ -718,7 +689,7 @@ load_relocate_program:
     mov ebx, 0xFFFFF000
     xor esi, esi
  .b1:
-    mov dword [es:ebx + esi*4], 0x00000000
+    mov dword [ebx + esi*4], 0x00000000
     inc esi
     cmp esi, 512
     jl .b1     
@@ -729,7 +700,7 @@ load_relocate_program:
     ; load user program to memory
     mov eax, [ebp+10*4]  ; 用户程序起始 LBA    
     mov edi, core_buf
-    call sys_routine_seg_sel:read_hard_disk_section     ; get header
+    call flat_4gb_code_seg_sel:read_hard_disk_section     ; get header
     
     mov eax, dword [core_buf]
     mov ebx, eax
@@ -741,22 +712,17 @@ load_relocate_program:
     mov ecx, eax
     shr ecx, 12    ; 计算需要有多少页 
         
-    mov eax, mem_0_4_gb_seg_sel
-    mov ds, eax
-    
     push edi
-    mov esi, [ebp+11*4]    ; TCB 基地址    
-    mov eax, [ebp+12*4]    ; 其实扇区号 LBA 
+    mov esi, [ebp+9*4]    ; TCB 基地址    
+    mov eax, [ebp+10*4]     ; 其实扇区号 LBA 
  .b2:
-    mov ebx, [es:esi + 0x06] ; 可用线性地址
-    add dword [es:esi + 0x06], 0x1000
-    call sys_routine_seg_sel:alloc_inst_a_page
+    alloc_user_linear     ; 宏：在用户任务地址空间上分配内存 
     
     mov edi, ebx
     push ecx
     mov ecx, 8
  .b3:
-    call sys_routine_seg_sel:read_hard_disk_section 
+    call flat_4gb_code_seg_sel:read_hard_disk_section 
     inc eax
     add edi, 512
     loop .b3
@@ -765,60 +731,46 @@ load_relocate_program:
     loop .b2
     pop edi
      
-    mov eax, core_data_seg_sel   ; 访问内核数据段 
-    mov ds, eax
+    alloc_core_linear         ; 内核空间创建用户的TSS 
     
-    mov ebx, [core_next_laddr]   ; 从内核 空间分配 TSS 
-    call sys_routine_seg_sel:alloc_inst_a_page
-    add dword [core_next_laddr], 4096
+    mov [esi+0x14], ebx        ; TCB中TSS线性地址 
+    mov word [esi+0x12], 103   ; TCB中TSS界限 
     
-    mov [es:esi+0x14], ebx        ; TCB中TSS线性地址 
-    mov word [es:esi+0x12], 103   ; TCB中TSS界限 
-    
-    ;建立程序代码段     0x00 
-    mov ebx, [es:esi+0x06]      ; 取得可用线性地址
-    add dword [es:esi+0x06], 0x1000
-    call sys_routine_seg_sel:alloc_inst_a_page
-    mov [es:esi + 0x0c], ebx    
+    ;建立程序代码段     0x00
+    alloc_user_linear 
+    mov [esi + 0x0c], ebx    
      
     xor eax, eax
     mov ebx, 0x000FFFFF     ; seg len
     mov ecx, 0x00C0F800    ; attributes
-    call sys_routine_seg_sel:make_seg_descriptor    
+    call flat_4gb_code_seg_sel:make_seg_descriptor    
     mov ebx, esi
     call fill_descriptor_in_ldt       ; 安装到LDT中      
     or cx, 0000_0000_0000_0011B    ; 权限值设为 3 
-    mov ebx, [es:esi + 0x14]
-    mov [es:ebx + 76], cx 
+    mov ebx, [esi+0x14]
+    mov [ebx + 76], cx 
         
     ;建立程序数据段描述符   0x07
     xor eax,eax
     mov ebx,0x000FFFFF                 ;段长度
     mov ecx,0x00C0F200                 ;字节粒度的数据段描述符
-    call sys_routine_seg_sel:make_seg_descriptor
+    call flat_4gb_code_seg_sel:make_seg_descriptor
     mov ebx, esi
     call fill_descriptor_in_ldt
     or cx, 0000_0000_0000_0011B
-    mov ebx, [es:esi+0x14]
-    mov [es:ebx + 84], cx       ; TSS DS域
-    mov [es:ebx + 72], cx       ; TSS ES域
-    mov [es:ebx + 88], cx       ; TSS FS域
-    mov [es:ebx + 92], cx       ; TSS GS域                 
+    mov ebx, [esi+0x14]
+    mov [ebx + 84], cx       ; TSS DS域
+    mov [ebx + 72], cx       ; TSS ES域
+    mov [ebx + 88], cx       ; TSS FS域
+    mov [ebx + 92], cx       ; TSS GS域                 
 
     ;建立程序堆栈段描述符   0x0F
-    mov ebx,[es:esi+0x06]                 ;4KB的倍率
-    add dword [es:esi + 0x06], 0x1000
-    call sys_routine_seg_sel:alloc_inst_a_page    
-    mov ebx, [es:esi + 0x14]
-    mov [es:ebx + 80], cx       ; TSS SS域
-    mov edx, [es:esi+0x06]      ; 刚为栈段 分配的内存段的高地址，即下一个即将分配的地址 
-    mov [es:ebx+56], edx        ; TSS ESP域
-
-    ;重定位SALT
-    mov eax, mem_0_4_gb_seg_sel
-    mov es,eax                         ;es -> 用户程序头部 
-    mov eax,core_data_seg_sel
-    mov ds,eax
+    alloc_user_linear
+       
+    mov ebx, [esi + 0x14]
+    mov [ebx + 80], cx       ; TSS SS域
+    mov edx, [esi+0x06]      ; 刚为栈段 分配的内存段的高地址，即下一个即将分配的地址 
+    mov [ebx+56], edx        ; TSS ESP域
       
     cld
 
@@ -839,9 +791,10 @@ load_relocate_program:
     repe cmpsd                         ;每次比较4字节 
     jnz .b6
     mov eax,[esi]                      ;若匹配，esi恰好指向其后的地址数据
-    mov [es:edi-256],eax               ;将字符串改写成偏移地址 
+    mov [edi-256],eax               ;将字符串改写成偏移地址 
     mov ax,[esi+4]
-    mov [es:edi-252],ax                ;以及段选择子 
+    or ax, 0000000000000011B        ; RPL=3
+    mov [edi-252],ax                ;以及段选择子 
   .b6:
       
     pop ecx
@@ -856,97 +809,89 @@ load_relocate_program:
     loop .b4
 
     
-    mov esi, [ebp + 11*4]
-    mov ebx, [es:esi + 0x06]
-    add dword [es:esi+0x06], 0x1000
-    call sys_routine_seg_sel:alloc_inst_a_page
+    mov esi, [ebp + 10*4]
+    alloc_user_linear
     
     mov eax, 0x00000000
     mov ebx, 0x000FFFFF
     mov ecx, 0x00C09200       ; 4K粒度，特权级0
-    call sys_routine_seg_sel:make_seg_descriptor
+    call flat_4gb_code_seg_sel:make_seg_descriptor
     mov ebx, esi
     call fill_descriptor_in_ldt
-    mov ebx, [es:esi+0x14]
-    mov [es:ebx+8], cx
-    mov edx, [es:esi+0x06]
-    mov [es:ebx+4], edx 
+    
+    mov ebx, [esi+0x14]
+    mov [ebx+8], cx
+    mov edx, [esi+0x06]
+    mov [ebx+4], edx 
     
     ;创建1特权级堆栈
-    mov ebx, [es:esi + 0x06]
-    add dword [es:esi + 0x06], 0x1000
-    call sys_routine_seg_sel:alloc_inst_a_page
+    alloc_user_linear
     
     mov eax, 0x00000000
     mov ebx, 0x000FFFFF
     mov ecx, 0x00C0B200                 ;4KB粒度，读写，特权级1
-    call sys_routine_seg_sel:make_seg_descriptor
+    call flat_4gb_code_seg_sel:make_seg_descriptor
     mov ebx, esi                        ;TCB的基地址
     call fill_descriptor_in_ldt
     or cx, 0000_0000_0000_0001B         ;设置选择子的特权级为1
     
-    mov ebx, [es:esi+0x14]             ; TSS 基地址
-    mov [es:ebx + 16], cx
-    mov edx, [es:esi+0x06]             ; 堆栈高端地址
-    mov [es:ebx + 12], edx             ; TSS ESP1 
+    mov ebx, [esi+0x14]             ; TSS 基地址
+    mov [ebx + 16], cx
+    mov edx, [esi+0x06]             ; 堆栈高端地址
+    mov [ebx + 12], edx             ; TSS ESP1 
 
     ;创建2特权级堆栈
-    mov ebx, [es:esi + 0x06]
-    add dword [es:esi + 0x06], 0x1000
-    call sys_routine_seg_sel:alloc_inst_a_page
+    alloc_user_linear
 
     mov eax, 0x00000000
     mov ebx, 0x000FFFFF
     mov ecx,0x00c0d200                 ;4KB粒度，读写，特权级1
-    call sys_routine_seg_sel:make_seg_descriptor
+    call flat_4gb_code_seg_sel:make_seg_descriptor
     mov ebx,esi                        ;TCB的基地址
     call fill_descriptor_in_ldt
     or cx,0000_0000_0000_0010B         ;设置选择子的特权级为1
 
-    mov ebx, [es:esi+0x14]             ; TSS 基地址
-    mov [es:ebx + 24], cx
-    mov edx, [es:esi+0x06]             ; 堆栈高端地址
-    mov [es:ebx + 20], edx             ; TSS ESP1
+    mov ebx, [esi+0x14]             ; TSS 基地址
+    mov [ebx + 24], cx
+    mov edx, [esi+0x06]             ; 堆栈高端地址
+    mov [ebx + 20], edx             ; TSS ESP1
 
     ;在GDT中登记LDT描述符
-    mov esi, [ebp + 11*4]
-    mov eax, [es:esi+0x0c]             ;LDT的起始线性地址
-    movzx ebx,word [es:esi+0x0a]       ;LDT段界限
+    mov esi, [ebp + 9*4]
+    mov eax, [esi+0x0c]             ;LDT的起始线性地址
+    movzx ebx,word [esi+0x0a]       ;LDT段界限
     mov ecx,0x00408200                 ;LDT描述符，特权级0
-    call sys_routine_seg_sel:make_seg_descriptor
-    call sys_routine_seg_sel:set_up_gdt_descriptor
-    mov [es:esi+0x10],cx               ;登记LDT选择子到TCB中
+    call flat_4gb_code_seg_sel:make_seg_descriptor
+    call flat_4gb_code_seg_sel:set_up_gdt_descriptor
+    mov [esi+0x10],cx               ;登记LDT选择子到TCB中
     
-    mov ebx, [es:esi+0x14]
-    mov [es:ebx + 96], cx              ; TSS中 LDT域 
-    mov word [es:ebx + 0], 0           ; 反向链
+    mov ebx, [esi+0x14]
+    mov [ebx + 96], cx              ; TSS中 LDT域 
+    mov word [ebx + 0], 0           ; 反向链
     
-    mov dx, [es:esi + 0x12]            ; 段长度
-    mov [es:ebx + 102], dx
-    mov word [es:ebx + 100], 0         ; T = 0
+    mov dx, [esi + 0x12]            ; 段长度
+    mov [ebx + 102], dx
+    mov word [ebx + 100], 0         ; T = 0
     
-    mov eax, [es:0x04]
-    mov [es:ebx + 32], eax             ; EIP 
+    mov eax, [0x04]
+    mov [ebx + 32], eax             ; EIP 
     
     pushfd 
     pop edx
-    mov [es:ebx + 36], edx             ; TSS的EFLAGS
+    mov [ebx + 36], edx             ; TSS的EFLAGS
                
     ;在GDT中登记TSS描述符
-    mov eax,[es:esi+0x14]              ;TSS的起始线性地址
-    movzx ebx,word [es:esi+0x12]       ;段长度（界限）
+    mov eax,[esi+0x14]              ;TSS的起始线性地址
+    movzx ebx,word [esi+0x12]       ;段长度（界限）
     mov ecx,0x00408900                 ;TSS描述符，特权级0
-    call sys_routine_seg_sel:make_seg_descriptor
-    call sys_routine_seg_sel:set_up_gdt_descriptor
-    mov [es:esi+0x18],cx               ;登记TSS选择子到TCB
+    call flat_4gb_code_seg_sel:make_seg_descriptor
+    call flat_4gb_code_seg_sel:set_up_gdt_descriptor
+    mov [esi+0x18],cx               ;登记TSS选择子到TCB
     
     ; 复制页目录和页表
-    call sys_routine_seg_sel:create_copy_cur_pdir
-    mov ebx, [es:esi+0x14]
-    mov dword [es:ebx+28], eax 
-
-    pop es                             ;恢复到调用此过程前的es段 
-    pop ds                             ;恢复到调用此过程前的ds段
+    call flat_4gb_code_seg_sel:create_copy_cur_pdir
+    mov ebx, [esi+0x14]
+    mov dword [ebx+28], eax 
             
     popad
     ret 8
@@ -955,57 +900,124 @@ load_relocate_program:
 ; ECX=tcb基地址 
 ;
 append_to_tcb_link:
+    
+    cli    ; 关中断 
+    
     push eax
-    push edx
-    push ds
-    push es
+    push edx        
     
-    mov eax, core_data_seg_sel
-    mov ds, eax
-    mov eax, mem_0_4_gb_seg_sel
-    mov es, eax
-    
-    mov dword [es:ecx+0x00], 0   ; 结构体第一项清0，表示之后没内容了
-    
-    mov eax, [tcb_chain]
-    or eax, eax
-    jz .notcb
+    mov eax, tcb_chain
  .searc:
-    mov edx, eax
-    mov eax, [es:edx + 0x00]
-    or eax, eax
-    jnz .searc
-    
-    mov [es:edx + 0x00], ecx
-    jmp .retpc
+    mov edx, [eax]
+    or edx, edx
+    jz .notcb
+       
+    mov eax, edx
+    jmp .searc
  .notcb:
-    mov [tcb_chain], ecx ; 空表，直接将头指针指向新分配
-    
- .retpc:    
-    pop es
-    pop ds
+    mov [eax], ecx ; 空表，直接将头指针指向新分配
+    mov dword [ecx], 0x00000000 ; TCB指针域清0，最后一个TCB
+     
     pop edx
     pop eax
+    
+    sti      ; 开中断 
+    
     ret    
     
     ;
     ; Core Start Address
     ;
 start:
-    mov ecx, core_data_seg_sel
-    mov ds, ecx
+    ; 创建中断描述符表 IDT
+    ; 在此之前不能调用含有 sti 指令过程
     
-    mov ecx,mem_0_4_gb_seg_sel         ;令ES指向4GB数据段 
-    mov es,ecx    
+    call flat_4gb_code_seg_sel:screen_cls  ; 清屏
 
-    call sys_routine_seg_sel:screen_cls  ; 清屏
+    xor ebx, ebx
+    call flat_4gb_code_seg_sel:far_set_cursor_pos ; 设置光标位置    
     
-    xor ebx, ebx 
-    call sys_routine_seg_sel:far_set_cursor_pos ; 设置光标位置 
+    ; 前20个向量处理器异常
+    mov eax, general_exception_handler
+    mov bx, flat_4gb_code_seg_sel
+    mov cx, 0x8e00    ;  32位门中断，0特权级别
+    call flat_4gb_code_seg_sel:make_gate_descriptor
     
-    mov ebx, message_0
-    call sys_routine_seg_sel:put_string
+    mov ebx, idt_linear_address
+    xor esi, esi
+ .idt0:
+    mov [ebx + esi*8], eax
+    mov [ebx + esi*8 + 4], edx
+    inc esi
+    cmp esi, 19
+    jle .idt0
     
+    mov eax, general_interrupt_handler
+    mov bx, flat_4gb_code_seg_sel
+    mov cx, 0x8e00
+    call flat_4gb_code_seg_sel:make_gate_descriptor
+    
+    mov ebx, idt_linear_address
+ .idt1:
+    mov [ebx+esi*8], eax
+    mov [ebx+esi*8+4], edx
+    inc esi
+    cmp esi, 255
+    jle .idt1
+    
+    ; 实时时钟中断处理过程
+    mov eax, rtm_0x70_interrupt_handle
+    mov bx, flat_4gb_code_seg_sel
+    mov cx, 0x8e00
+    call flat_4gb_code_seg_sel:make_gate_descriptor
+    
+    mov ebx, idt_linear_address
+    mov [ebx+0x70*8], eax
+    mov [ebx+0x70*8+4], edx
+    
+    ; 开放中断
+    mov word [pidt], 256*8-1
+    mov dword [pidt+2], idt_linear_address
+    lidt [pidt]
+    
+    ; 设置8259A中断控制器
+    mov al, 0x11       ; ICW1, 边沿触发，级联方式 
+    out 0x20, al
+    mov al, 0x20       ; ICW2 起始中断向量 
+    out 0x21, al
+    mov al, 0x04       ; ICW3 从片级联到IR2 
+    out 0x21, al
+    mov al, 0x01       ; ICW4 非总线缓冲，全嵌套，正常EOI     
+    out 0x21, al     
+    
+    mov al, 0x11       ; ICW1, 边沿触发，级联方式
+    out 0xa0, al
+    mov al, 0x70       ; ICW2 起始中断向量
+    out 0xa1, al
+    mov al, 0x04       ; ICW3 从片级联到IR2
+    out 0xa1, al
+    mov al, 0x01       ; ICW4 非总线缓冲，全嵌套，正常EOI
+    out 0xa1, al
+    
+    ; 设置和时钟中断相关的硬件
+    mov al, 0x0b       ; RTC寄存器B
+    or al, 0x80        ; NMI阻断
+    out 0x70, al
+    mov al, 0x12       ; 设置寄存器B，禁止周期性中断，开放更新结束后中断
+                       ; BCD 码，24小时制
+    in al, 0xa1        ; 读8259从片的IMR寄存器
+    and al, 0xfe       ; 清除bit 0
+    out 0xa1, al       ; 写回寄存器
+    
+    mov al, 0x0c
+    out 0x70, al
+    in al, 0x71        ; 读取RTC寄存器C，复位未决的中断状态
+     
+    sti  ; 开放硬件中断
+        
+    mov ebx, message_0   
+    call flat_4gb_code_seg_sel:put_string 
+           
     mov eax, 0x80000002
     cpuid
     mov [cpu_brand + 0x00], eax
@@ -1028,95 +1040,23 @@ start:
     mov [cpu_brand + 0x2C], edx
     
     mov ebx, cpu_brand0
-    call sys_routine_seg_sel:put_string
+    call flat_4gb_code_seg_sel:put_string
     mov ebx, cpu_brand
-    call sys_routine_seg_sel:put_string    
+    call flat_4gb_code_seg_sel:put_string    
     mov ebx, cpu_brand1
-    call sys_routine_seg_sel:put_string
-
-    ; Open Page
-    ; 创建内核页目录表，并将所有内容清空 
-    mov ecx, 1024
-    mov ebx, 0x00020000
-    xor esi, esi
- .b1: 
-    mov dword [es:ebx + esi], 0x00000000
-    add esi, 4
-    loop .b1
-    
-    mov dword [es:ebx+4092], 0x00020003  ; 指向页目录表自己的条目，用于访问页目录表本身
-    
-    ; 在页目录内创建于现行地址 0x00000000 对应的目录项
-    mov dword [es:ebx+0], 0x00021003  ; 用于映射低1M的内存
-    
-    mov ebx, 0x00021000   ; 第一个页表的基地址，在页目录后，用于对应低1M内存 
-    xor eax, eax
-    xor esi, esi
- .b2:
-    mov edx, eax
-    or edx, 0x00000003
-    mov [es:ebx+esi*4], edx
-    add eax, 0x1000
-    inc esi
-    cmp esi, 256
-    jl .b2
-    
- .b3:                    ; 第一个页表中的1M内存之后的页表项都置空 
-    mov dword [es:ebx + esi * 4], 0x00000000
-    inc esi
-    cmp esi, 1024
-    jl .b3
-    
-    mov eax, 0x00020000  ; CR3寄存器保存页表基地址 
-    mov cr3, eax
-    
-    mov eax, cr0
-    or eax, 0x80000000
-    mov cr0, eax
-    
-    ;mov ebx, 0xFFFFF000   ; 页目录自己的线性基地址
-    mov ebx, 0x00020000   ; 由于低1M内存直接映射为虚拟地址的低1M，因此可以直接访问页目录 
-    mov esi, 0x80000000   ; 映射的起始地址
-    shr esi, 22
-    shl esi, 2            ; 起始地址在 在页目录中的索引（高10位 乘 4）
-    mov dword [es:ebx + esi], 0x00021003  ; 将低1M内存映射到0x80000000起始地址处
-    
-    sgdt [pgdt]
-    mov ebx, [pgdt + 2]
-    or dword [es:ebx + 0x10 + 4], 0x80000000
-    or dword [es:ebx + 0x18 + 4], 0x80000000
-    or dword [es:ebx + 0x20 + 4], 0x80000000
-    or dword [es:ebx + 0x28 + 4], 0x80000000
-    or dword [es:ebx + 0x30 + 4], 0x80000000
-    or dword [es:ebx + 0x38 + 4], 0x80000000                     
-     
-    add dword [pgdt + 2], 0x80000000
-    
-    lgdt [pgdt]
-    jmp core_code_seg_sel:flush    ; 刷新CS寄存器，启用高端线性地址
-    
- flush:
-    mov eax, core_stack_seg_sel
-    mov ss, eax
-    
-    mov eax, core_data_seg_sel
-    mov ds, eax
-
-    mov ebx, message_1
-    call sys_routine_seg_sel:put_string
+    call flat_4gb_code_seg_sel:put_string
          
     ; setup call gate
     mov ecx, salt_items
     mov edi, salt
  .stgate:
-    push ecx
-    
+    push ecx    
     mov eax, [edi + 256]
     mov bx, [edi + 260]
     mov cx, 1_11_0_1100_000_00000b 
-    call sys_routine_seg_sel:make_gate_descriptor
-    call sys_routine_seg_sel:set_up_gdt_descriptor
-    or cx, 0x0003      ; Ring3 可以访问     
+    call flat_4gb_code_seg_sel:make_gate_descriptor
+    call flat_4gb_code_seg_sel:set_up_gdt_descriptor
+    ;or cx, 0x0003      ; Ring3 可以访问     
     mov word [edi + 260], cx
     
     add edi, salt_item_len
@@ -1127,27 +1067,32 @@ start:
     call far [salt + 256] 
  
     ; 分配内核任务
-    mov ebx, [core_next_laddr]
-    call sys_routine_seg_sel:alloc_inst_a_page
-    add dword [core_next_laddr], 4096
+    mov word [core_tcb+0x04], 0xffff      ; 状态忙碌
+    mov dword [core_tcb+0x06], 0x80100000
     
-    mov word [es:ebx + 0], 0
+    mov word [core_tcb+0x0a], 0xffff      ; 等级LDT初始的界限为未使用
+    mov ecx, core_tcb
+    call append_to_tcb_link               ; 添加到TCB链中
+    
+    alloc_core_linear   ; 宏，在内核虚拟地址空间分配内存 
+        
+    mov word [ebx + 0], 0
     mov eax, cr3
-    mov dword [es:ebx + 28], eax ; TSS中CR3字段(PDBR)设置为CR3中的值 
+    mov dword [ebx + 28], eax ; TSS中CR3字段(PDBR)设置为CR3中的值 
     
     ; 填充TSS中的必要内容
-    mov word [es:ebx + 96], 0    ; LDT 描述符字段设为0
-    mov word [es:ebx + 100], 0   ; T=0    
-    mov word [es:ebx + 102], 103 ; I/O位图，0特权级不需要
+    mov word [ebx + 96], 0    ; LDT 描述符字段设为0
+    mov word [ebx + 100], 0   ; T=0    
+    mov word [ebx + 102], 103 ; I/O位图，0特权级不需要
                                  ; 其他特权级的堆栈也不需要
                                                                   
     ; 创建TSS描述符，安装GDT
     mov eax, ebx
     mov ebx, 103
     mov ecx, 0x00408900  
-    call sys_routine_seg_sel:make_seg_descriptor
-    call sys_routine_seg_sel:set_up_gdt_descriptor
-    mov [prgman_tss+0x04], cx    ; 程序管理器的TSS描述符选择子
+    call flat_4gb_code_seg_sel:make_seg_descriptor
+    call flat_4gb_code_seg_sel:set_up_gdt_descriptor
+    mov [core_tcb+0x14], cx    ; 程序管理器的TSS描述符选择子
     
     ; 任务寄存器TR中内容是任务存在标志，决定了当前任务是谁
     ; 下面指令为当前正在执行的0特权级，任务管理器 补充TSS内容 
@@ -1155,33 +1100,41 @@ start:
 
     ; 加载了 tss，则认为"程序管理器"任务在执行中 
     mov ebx, message_21
-    call sys_routine_seg_sel:put_string
+    call flat_4gb_code_seg_sel:put_string
 
-    ; 分配 TCB
-    mov ebx, [core_next_laddr]
-    call sys_routine_seg_sel:alloc_inst_a_page
-    add dword [core_next_laddr], 4096
+    ; 分配 任务1 TCB
+    alloc_core_linear
     
-    mov dword [es:ebx + 0x06], 0
-    mov word [es:ebx + 0x0a], 0xffff
-    mov ecx, ebx     
+    mov word [ebx+0x04], 0           ; 任务状态：空闲 
+    mov dword [ebx+0x06], 0
+    mov word [ebx+0x0a], 0xffff
+        
+    ; 加载用户程序，压栈 用户程序的LBA/加载地址 
+    push app_prog1_lba      ; 
+    push ebx
+    call load_relocate_program
+    mov ecx, ebx
+    call append_to_tcb_link 
+
+    ; 分配 任务2 TCB
+    alloc_core_linear
+
+    mov word [ebx+0x04], 0           ; 任务状态：空闲
+    mov dword [ebx+0x06], 0
+    mov word [ebx+0x0a], 0xffff
+
+    ; 加载用户程序，压栈 用户程序的LBA/加载地址
+    push app_prog2_lba      ;
+    push ebx
+    call load_relocate_program
+    mov ecx, ebx
     call append_to_tcb_link
     
-    ; 加载用户程序，压栈 用户程序的LBA/加载地址 
-    push app_prog_lba      ; 
-    push ecx
-    call load_relocate_program
-
-    mov ebx, message_4
-    call sys_routine_seg_sel:put_string
+ .core: 
+    mov ebx, core_msg0 
+    call flat_4gb_code_seg_sel:put_string
     
-    call far [es:ecx+0x14]    ; 执行任务切换，和上一章不同，任务切换时要恢复TSS内容
-                              ; 所以在创建任务时TSS要填写完整 
-    ; 重新加载并切换任务
-    mov ebx, message_5
-    call sys_routine_seg_sel:put_string
-    
-    hlt
+    jmp .core 
 
 core_code_end:
     

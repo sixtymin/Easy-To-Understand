@@ -54,7 +54,21 @@ chapter 16
     lb 0x800412c3
     
     
+chapter 17
+
+    b 0x7c6e       // jmp to 32
     
+    b 0x7d37       // jmp to core         
+    
+    lb 0x8004158b  //  
+
+    
+    
+    lb 0x80041188
+    
+    lb 0x800412c3
+    
+        
     
     
     
