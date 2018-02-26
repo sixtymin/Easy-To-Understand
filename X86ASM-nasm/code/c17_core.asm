@@ -107,7 +107,7 @@ put_char:
     jz put_0a
     
     shl ebx, 1  ; 输出正常字符
-    mov [es:ebx], cl
+    mov [ebx + video_ram_address], cl
     shr ebx, 1
     inc ebx
     jmp crll_screen  ; 是否卷屏 
@@ -126,14 +126,16 @@ put_char:
     jb reset_cur
 
     xor edi, edi  ; 卷屏
+    add edi, video_ram_address
     mov esi, 0xa0
+    add esi, video_ram_address    
     mov ecx, 1920
     rep movsw
 
     mov eax, 0x20
     mov ecx, 80
   cls_ln:
-    mov byte [edi], al
+    mov byte [edi + video_ram_address], al
     add edi, 2
     loop cls_ln
 
@@ -507,7 +509,7 @@ general_interrupt_handler:
 general_exception_handler:
     mov ebx, excep_msg
     call flat_4gb_code_seg_sel:put_string
-    hlt
+    hlt    
 
 rtm_0x70_interrupt_handle:
     
@@ -774,14 +776,14 @@ load_relocate_program:
       
     cld
 
-    mov edi, [es:0x08]              ;用户程序内的SALT位于头部内0x2c处
-    mov ecx, [es:0x0c]              ;用户程序的SALT条目数    
+    mov edi, [0x08]              ;用户程序内的SALT位于头部内0x2c处
+    mov ecx, [0x0c]              ;用户程序的SALT条目数    
   .b4: 
     push ecx
     push edi
       
-    mov ecx,salt_items
-    mov esi,salt
+    mov ecx, salt_items
+    mov esi, salt
   .b5:
     push edi
     push esi
@@ -809,7 +811,7 @@ load_relocate_program:
     loop .b4
 
     
-    mov esi, [ebp + 10*4]
+    mov esi, [ebp + 9*4]
     alloc_user_linear
     
     mov eax, 0x00000000
