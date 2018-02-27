@@ -149,12 +149,14 @@ put_char:
 ;
 ; Show a string(zero end) on screen
 ; param:
-;   DS:EBX  指向要输出字符串（0结束符）基地址 
+;   EBX  指向要输出字符串（0结束符）基地址 
 put_string:
+
+    cli
+    
     push ecx
     push eax
-    
-    cli 
+     
     xor eax, eax
   more:
     mov al, [ebx]
@@ -165,10 +167,12 @@ put_string:
     inc ebx    
     jmp more
         
- str_end:
-    sti
+ str_end:    
     pop eax
     pop ecx
+    
+    sti    
+    
     retf    
 ;
 ; clean screen 
@@ -535,20 +539,20 @@ rtm_0x70_interrupt_handle:
     jmp .b0
     
  .b1:
-    mov ecx, [ebx]
+    mov ecx, [ebx]     ; 找到忙节点，从链表拆除 
     mov [eax], ecx 
  .b2:
     mov edx, [eax]
     or edx, edx
     jz .b3
-    mov eax, edx
+    mov eax, edx       ; 继续寻找最后一个节点 
     jmp .b2
  
  .b3:
-    mov [eax], ebx
+    mov [eax], ebx     ; 找到结尾节点，将EBX中的忙节点挂入 
     mov dword [ebx], 0x00000000
     
-    mov eax, tcb_chain
+    mov eax, tcb_chain  ; 寻找空闲结点 
  .b4:
     mov eax, [eax]
     or eax, eax
@@ -556,7 +560,7 @@ rtm_0x70_interrupt_handle:
     cmp word [eax+0x04], 0x0000
     jnz .b4
     
-    not word [eax+0x04]
+    not word [eax+0x04]    ; 找到空闲结点，则置状态 
     not word [ebx+0x04]
     jmp far [eax + 0x14]   ; 任务切换
     
@@ -945,7 +949,7 @@ start:
     mov cx, 0x8e00    ;  32位门中断，0特权级别
     call flat_4gb_code_seg_sel:make_gate_descriptor
     
-    mov ebx, idt_linear_address
+    mov ebx, idt_linear_address     ; 这块内存在1M之内，已经被分配（分页和物理内存） 
     xor esi, esi
  .idt0:
     mov [ebx + esi*8], eax
@@ -1006,7 +1010,8 @@ start:
     or al, 0x80        ; NMI阻断
     out 0x70, al
     mov al, 0x12       ; 设置寄存器B，禁止周期性中断，开放更新结束后中断
-                       ; BCD 码，24小时制
+    out 0x71, al       ; BCD 码，24小时制    
+     
     in al, 0xa1        ; 读8259从片的IMR寄存器
     and al, 0xfe       ; 清除bit 0
     out 0xa1, al       ; 写回寄存器
@@ -1072,7 +1077,7 @@ start:
     mov word [core_tcb+0x04], 0xffff      ; 状态忙碌
     mov dword [core_tcb+0x06], 0x80100000
     
-    mov word [core_tcb+0x0a], 0xffff      ; 等级LDT初始的界限为未使用
+    mov word [core_tcb+0x0a], 0xffff      ; 登记LDT初始的界限为未使用
     mov ecx, core_tcb
     call append_to_tcb_link               ; 添加到TCB链中
     
@@ -1108,7 +1113,7 @@ start:
     alloc_core_linear
     
     mov word [ebx+0x04], 0           ; 任务状态：空闲 
-    mov dword [ebx+0x06], 0
+    mov dword [ebx+0x06], 0          ; 起始可用的虚拟地址 
     mov word [ebx+0x0a], 0xffff
         
     ; 加载用户程序，压栈 用户程序的LBA/加载地址 
@@ -1122,7 +1127,7 @@ start:
     alloc_core_linear
 
     mov word [ebx+0x04], 0           ; 任务状态：空闲
-    mov dword [ebx+0x06], 0
+    mov dword [ebx+0x06], 0          ; 可用的起始虚拟地址 
     mov word [ebx+0x0a], 0xffff
 
     ; 加载用户程序，压栈 用户程序的LBA/加载地址
