@@ -1,0 +1,195 @@
+
+1. 
+
+2. 基础学习：
+    
+    -1. X86-64编程                                              // 基本完成
+        1. 编写实模式代码                                       // 完成
+        2. 编写保护模式代码                                     // 完成
+        3. 编写X64代码（long mode），为今后开发64位系统做准备   // 几个系统代码研读后再研究
+            
+    0. 操作系统原理
+        0. Linux内核完全剖析-基于0.12                           // 
+           XV6课程设计                                          // 
+        1. Linux程序设计                                        //
+            学习linux下的编程
+        2. 清华大学操作系统教程                                 // 
+            1. 看视频内容
+            2. 阅读lab试验指导书(ucore_os_doc.pdf)
+            3. 查看 relate 代码
+            4. step by step教程内容 (simple_os_book.pdf)
+        3. ReactOS原理与代码阅读完成                            // 
+        
+    1. 自己编写操作系统：
+        1. 汇编学习                                             // 
+            从实模式到保护模式                                  // 完成
+            x86-X64体系探索与编程                               // 完成     
+        2. 自己编写操作系统：
+            1. Bochs 调试学习                                   //
+            2. nasm 汇编学习一下                                //
+            3. Bran's Kernel Development Tutorial               //
+                http://www.osdever.net/bkerndev/index.php
+                https://github.com/pisceseyes/bkerndev
+            
+                http://www.osdever.net/tutorials/ 主站教程
+                
+                http://fleurer-lee.com/paper.html
+                作为了解吧！！！            
+            4. http://wiki.0xffffff.org/                        // 
+                    hurlex-doc-master.zip
+        
+            5. https://pdos.csail.mit.edu/6.828/2011/xv6.html   // 
+                https://github.com/ranxian/xv6-chinese
+
+                book-rev7.pdf (xv6-chinese.pdf中文版)
+                xv6-rev7.pdf
+                
+            6. http://wiki.osdev.org/Main_Page                  // 
+
+            7. http://www.osdever.net/tutorials/                // 
+                带界面的操作系统 作为了解 
+                
+            8. 《Linux内核完全剖析-基于0.12版本》               // 
+
+    2. Windows
+        0. Windows驱动编程
+        1. Windows内核编程与安全
+        2. Windows内核情景分析
+        3. 调试Windows的机制
+            1. Windows的线程创建
+            2. Windows系统调用过程
+            3. Windows的SEH异常建立机制，以及异常处理过程等
+        4. 注入模块
+            1. MapViewOfSection，在exe，ntdll.dll加载后注入，后面需要shellcode加载
+            2. IAT注入
+            3. Shim引擎注入  PEB+B8 位置
+            4. APC注入
+            5. ShellCode注入
+            6. 放入DLL资源文件中，释放后加载
+            7. 修改线程Context，执行注入Shellcode
+            8. Windows钩子 SetWindowsHooks  CBT
+        5. Windows内核下的书籍，逐一翻阅        
+
+    3. Windbg调试系统原理：
+        Heap
+        LPC
+        ProcessHider        
+        Wow64原理调试与总结        
+
+    4. 漏洞相关知识
+        1. 0day安全-软件漏洞分析技术(第2版)
+            完结，            
+            总结两篇原理文章（堆溢出/栈溢出）
+        2. 漏洞战争
+            
+        3. 最新漏洞分析以及POC学习
+        
+        4. Windows安全中的资料逐一学习        
+            1. PE文件结构/Windows的安全机制基础（令牌/ACL等）
+            2. 0Day安全-软件漏洞分析技术
+            3. 从零开始学习软件漏洞挖掘 - Exploit编写系列
+            4. 内核漏洞利用与防范 / 堆栈攻击（八层网络安全防御）
+            5. 一个都不能有 软件的19个致命安全漏洞            
+            剩下的逐一看，没有用途的删掉        
+
+3. Linux操作系统学习
+    -1. Linux C编程一站式学习                             // 完成（Makefile可看）
+    0. Linux内核设计与实现  第三版                        // 完成（看源码对应章节，回看）
+        该书给出了一个Linux系统的框架，总览性质！
+    1. Linux内核完全剖析  0.12版内核                      // 
+        http://www.oldlinux.org/oldlinux/index.php
+    2. 陈利君  深入分析Linux内核源代码                    // 
+    3. 深入Linux内核架构                                  // 
+    4. Linux内核情景分析                                  // 
+    5. Linux内核精髓                                      // 
+    6. Linux Device Driver 3rd                            // 
+
+4. 经典书籍阅读
+    1. C++ 程序设计语言
+    2. C++11新特性解析与应用
+    3. 深入浅出MFC
+    4. Windows Socket编程
+    5. 深度探索C++对象模型
+    6. 内存首先系统之软件开发
+    7. 编程高手真言
+    8. TCP-IP详解
+    9. STL源码剖析
+
+5. 汇编学习 与 处理器资料
+    1. 汇编与反汇编下的目录，逐一学习吧。
+    2. 看完汇编的，就接着看"处理器资料"目录下的资料
+    3. BIOS-UEFI资料
+    
+6. 操作系统
+    操作系统目录下的内容，也值得逐一看一下。
+    
+    1. Minix OS
+    2. Fuchsia 谷歌新的操作系统
+    
+    
+7. Python系统学习
+    0. Python灰帽子 / Python 绝技
+    1. 掌握 安全领域的库
+    2. 编写高质量代码-改善python程序的91个建议 / 廖雪峰的站点（捡着不太熟悉的再阅读练习一下）
+    3. Python源码剖析——深度探索动态语言核心技术
+        此阶段时要使用PEP8进行代码检查，可以尝试做一个代码扫描工具
+    4. The hacker's guide to Python（非安全类书籍）
+    5. 编写一个开源项目，考虑文档，分发，性能优化等等
+        从大局入手，规划好项目的布局，设定好相应的文档说明，提供工程下载安装的方法，带几个demo，每个类，每个函数，每行代码都反复推敲，写出pythonic的程序。
+
+8. 逆向与破解专题
+    0.《恶意代码分析实战》 看完，完成如下实例                     // 
+        1. 进程替换，启动恶意代码
+        2. APC注入   用户模式  /  内核模式
+        3. Detour库 修改PE文件
+    1. 看完《逆向工程核心原理》                                   //
+        PE文件 解析器
+        删除exe的reloc区段
+    2. 例子逐一看一下（R4ndom/Shark恒达破解/使用OllyDbg从零开始/逆向工程解密）    // 
+    3. 尝试破解flash反编译软件《硕思闪客精灵》                    //    
+
+9. IoT相关内容
+    
+    
+10. Android安全知识
+    1. 根据看过两本书，写一些实用的工具或脚本：           //
+        1. 整理已经编写的 APK反编译，打包，签名的工具命令行，以及配置方法
+        2. DroidKongfu病毒的逆向分析，完整看一遍
+        3. 将Java代码翻译为smali的工具（一个函数或一个类都可以）
+        4. Hook Android 应用
+    2. 逆向一个工程，比如微信 ，做网易APP广告去除         // 
+    3. 编写 ELF /  Dex（ODex）格式解析程序                // 
+    4. Android内核源码情景分析                            // 
+    5. 深入理解Linux内核架构                              // 
+    6. Android 安全攻防权威指南（漏洞与硬件相关知识）     // 
+
+11. Android需要看内容：
+    1. Linux下的进程与线程                                // 完成（原理，可以看一下源码）
+    2. Linux 的安全防护  SELinux / SEAndroid              // 
+        http://blog.csdn.net/innost/article/details/19299937
+        http://blog.csdn.net/luoshengyang/article/details/35392905
+    3. Dalvik虚拟机 /  ART 虚拟机的运行原理               // 
+    4. Java虚拟机的源码 与运行原理                        // 
+    5. Android Hook的原理                                 // 
+        Dalvik虚拟机原理及xposed框架
+        http://blog.csdn.net/innost/article/details/50377905
+        http://blog.csdn.net/innost/article/details/50461783
+  
+    android专业博客                                       //
+        http://blog.csdn.net/innost?viewmode=contents
+        http://blog.csdn.net/luoshengyang/article/details/35392905    
+    
+12. Chromium 开源代码    
+    1. IPC机制
+    2. 沙箱机制
+    3. JS引擎
+    4. 
+
+13. Go语言学习
+    1. 基础语法
+    2. 标准库
+    3. 
+    
+14. 开源代码阅读    
+    1. Nigx 服务器源代码    
+    2. Apache源代码
