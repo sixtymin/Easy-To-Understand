@@ -1,3 +1,12 @@
+---
+title: BIOS和UEFI
+date: 2018-01-08 09:15:33
+tags:
+- BIOS
+- UEFI
+categories:
+- Easy To Understand
+---
 
 这篇作为“按下电源键”向后的第一部分，即CPU加电后执行第一条指令到0x7C00处代码执行之前的内容说明。
 
