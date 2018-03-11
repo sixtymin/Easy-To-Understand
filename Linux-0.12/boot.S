@@ -4,7 +4,7 @@
 
 BOOTSEG = 0x07c0
 SYSSEG = 0x1000
-SYSLEN = 17
+SYSLEN = 10
 entry start
 
 start:
@@ -16,12 +16,13 @@ start:
     mov sp, #0x400   ; 从0x7c00 + 0x400作为栈顶
     
  load_system:
-    mov dx, #0x0000  ; DH - 磁头号 DL - 驱动器号 CH-10位磁道号低8位 
+    mov dx, #0x0080  ; DH - 磁头号 DL - 驱动器号 CH-10位磁道号低8位 
     mov cx, #0x0002  ; CL - 高两位与CH组成磁道号，低5位为起始扇区号 
     mov ax, #SYSSEG
     mov es, ax       ; ES:BX - 读入缓冲区位置 
     xor bx, bx       ; AH - 读磁盘的功能号 AL - 需要读取扇区数 
-    mov ax, #0x200+SYSLEN
+    mov ax, #0x200
+    add ax, #SYSLEN
     int 0x13
     jnc ok_load    
  die: 
@@ -36,7 +37,8 @@ start:
     mov cx, #0x1000
     sub si, si
     sub di, di
-    rep movw       ; 重复执行指令
+    rep 
+    movw
     
     ; 加载GDT/IDT
     mov ax, #BOOTSEG
