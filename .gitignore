@@ -12,3 +12,6 @@ Desktop.ini
 
 # log file
 *.log
+
+# temp file
+*~
