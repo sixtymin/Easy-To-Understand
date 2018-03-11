@@ -11,6 +11,9 @@ TSS1_SEL = 0x30
 LDT1_SEL = 0x38
 
 .text
+
+.global startup_32
+
 startup_32:
     movl $0x10, %eax
     mov %ax, %ds
@@ -100,7 +103,7 @@ write_char:
     pushl %ebx
     mov $SCRN_SEL, %ebx
     mov %bx, %gs
-    movl scr_loc, %bx
+    movl scr_loc, %ebx
     shl $1, %ebx
     movb %al, %gs:(%ebx)
     shr $1, %ebx
@@ -115,11 +118,11 @@ write_char:
     ret
     
 # 三个中断处理过程：
-.align 2
+.align 4
 ignore_int:
     push %ds
     pushl %eax
-    movl %0x10, %eax  # ds指向内核数据段 
+    movl $0x10, %eax  # ds指向内核数据段 
     mov %ax, %ds
     
     mov $67, %eax     # 输出字符"C" 
@@ -130,14 +133,14 @@ ignore_int:
     iret
     
 # 定时器中断处理过程
-.align 2
-timer_interrupt:
+.align 4
+time_interrupt:
     push %ds
     pushl %eax
     movl $0x10, %eax
     mov %eax, %ds     # 切换ds到内核数据段 
     
-    movb %0x20, %al
+    movb $0x20, %al
     outb %al, $0x20   # 项8259A发送EOI指令
     
     movl $1, %eax
@@ -155,7 +158,7 @@ timer_interrupt:
     iret
     
 # 中断调用 int 0x80处理程序，显示字符功能，相当于系统调用
-.align 2
+.align 4
 system_interrupt:
     push %ds
     pushl %edx
@@ -178,7 +181,7 @@ system_interrupt:
 current: .long 0            # 当前任务号 
 scr_loc: .long 0            # 当前显示位置
 
-.align 2
+.align 4
 lidt_opcode:
     .word 256*8-1
     .long idt
@@ -187,7 +190,7 @@ lgdt_opcode:
     .word (end_gdt-gdt)-1
     .long gdt
     
-.align 3
+.align 8
 idt: 
     .fill 256, 8, 0 
     
@@ -207,8 +210,8 @@ init_stack:
     .long init_stack
     .word 0x10
     
-# 任务 0 
-.align 3
+# 任务 0的ldt/tss信息 
+.align 8
 ldt0:
     .quad 0x0000000000000000
     .quad 0x00c0fa00000003ff
@@ -227,7 +230,7 @@ tss0:
 krn_stk0:            
 
 # 任务 1 
-.align 3
+.align 8
 ldt1:
     .quad 0x0000000000000000
     .quad 0x00c0fa00000003ff
@@ -250,7 +253,7 @@ krn_stk1:
 task0:
     movl $0x17, %eax
     movw %ax, %ds
-    movl $65, %al
+    movb $65, %al
     int $0x80
     movl $0xFFF, %ecx
  1: 
@@ -261,7 +264,7 @@ task0:
 task1:
     movl $0x17, %eax
     movw %ax, %ds
-    movl $66, %al
+    movb $66, %al
     int $0x80
     movl $0xFFF, %ecx
  1:
