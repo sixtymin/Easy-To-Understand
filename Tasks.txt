@@ -1,4 +1,3 @@
-
 1. 
 
 2. 基础学习：
@@ -93,17 +92,23 @@
             剩下的逐一看，没有用途的删掉        
 
 3. Linux操作系统学习
-    -1. Linux C编程一站式学习                             // 完成（Makefile可看）
-    0. Linux内核设计与实现  第三版                        // 完成（看源码对应章节，回看）
+    1. 基础书籍两本：
+        Linux内核完全剖析  0.12版内核                     // 
+        Linux内核设计的艺术 Linux 0.11版本                //
+    2. 单独阅读一下 Linux-1.0内核的源码                   //
+    3. Linux内核设计与实现  第三版                        // 
         该书给出了一个Linux系统的框架，总览性质！
-    1. Linux内核完全剖析  0.12版内核                      // 
-        http://www.oldlinux.org/oldlinux/index.php
-    2. 陈利君  深入分析Linux内核源代码                    // 
-    3. 深入Linux内核架构                                  // 
-    4. Linux内核情景分析                                  // 
-    5. Linux内核精髓                                      // 
-    6. Linux Device Driver 3rd                            // 
-
+    4. 两本书：
+       Linux内核情景分析                                  //
+       深入分析Linux内核源代码 陈利君                     // 
+    5. 深入理解linux内核                                  //     
+    6. 深入Linux内核架构                                  //     
+    
+    7. Linux内核精髓                                      // 
+    8. Linux Device Driver 3rd                            //     
+    9. Linux Shell脚本攻略                                //
+    10. 学习vi和vim编辑器 第7版                           //
+    
 4. 经典书籍阅读
     1. C++ 程序设计语言
     2. C++11新特性解析与应用
