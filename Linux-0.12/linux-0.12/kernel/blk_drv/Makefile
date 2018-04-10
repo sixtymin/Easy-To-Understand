@@ -6,9 +6,9 @@
 # unless it's something special (ie not a .c file).
 #
 
-AR	=gar
-AS	=gas
-LD	=gld
+AR	=ar
+AS	=as
+LD	=ld
 LDFLAGS	=-s -x
 CC	=gcc
 CFLAGS	=-Wall -O -fstrength-reduce -fomit-frame-pointer -fcombine-regs \
