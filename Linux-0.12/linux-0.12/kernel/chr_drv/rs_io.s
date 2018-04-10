@@ -30,11 +30,11 @@ startup	= 256		/* chars left in write queue when we restart it */
  * These are the actual interrupt routines. They look where
  * the interrupt is coming from, and take appropriate action.
  */
-.align 2
+.align 4
 _rs1_interrupt:
 	pushl $_table_list+8
 	jmp rs_int
-.align 2
+.align 4
 _rs2_interrupt:
 	pushl $_table_list+16
 rs_int:
@@ -79,19 +79,19 @@ end:	movb $0x20,%al
 jmp_table:
 	.long modem_status,write_char,read_char,line_status
 
-.align 2
+.align 4
 modem_status:
 	addl $6,%edx		/* clear intr by reading modem status reg */
 	inb %dx,%al
 	ret
 
-.align 2
+.align 4
 line_status:
 	addl $5,%edx		/* clear intr by reading line status reg. */
 	inb %dx,%al
 	ret
 
-.align 2
+.align 4
 read_char:
 	inb %dx,%al
 	movl %ecx,%edx
@@ -111,7 +111,7 @@ read_char:
 	addl $4,%esp
 	ret
 
-.align 2
+.align 4
 write_char:
 	movl 4(%ecx),%ecx		# write-queue
 	movl head(%ecx),%ebx
@@ -133,7 +133,7 @@ write_char:
 	cmpl head(%ecx),%ebx
 	je write_buffer_empty
 	ret
-.align 2
+.align 4
 write_buffer_empty:
 	movl proc_list(%ecx),%ebx	# wake up sleeping process
 	testl %ebx,%ebx			# is there any?

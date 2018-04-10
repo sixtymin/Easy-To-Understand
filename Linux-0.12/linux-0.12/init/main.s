@@ -3,7 +3,7 @@ gcc_compiled.:
 .text
 LC0:
 	.ascii "out of memory\12\15\0"
-	.align 2
+	.align 4
 _sprintf:
 	movl 4(%esp),%edx
 	leal 12(%esp),%eax
@@ -13,7 +13,7 @@ _sprintf:
 	call _vsprintf
 	addl $12,%esp
 	ret
-	.align 2
+	.align 4
 _time_init:
 	pushl %ebp
 	movl %esp,%ebp
@@ -196,20 +196,20 @@ L65:
 	leave
 	ret
 .data
-	.align 2
+	.align 4
 _memory_end:
 	.long 0
-	.align 2
+	.align 4
 _buffer_memory_end:
 	.long 0
-	.align 2
+	.align 4
 _main_memory_start:
 	.long 0
 .text
 LC1:
 	.ascii "/bin/sh\0"
 .data
-	.align 2
+	.align 4
 _argv_rc:
 	.long LC1
 	.long 0
@@ -217,7 +217,7 @@ _argv_rc:
 LC2:
 	.ascii "HOME=/\0"
 .data
-	.align 2
+	.align 4
 _envp_rc:
 	.long LC2
 	.long 0
@@ -226,7 +226,7 @@ _envp_rc:
 LC3:
 	.ascii "-/bin/sh\0"
 .data
-	.align 2
+	.align 4
 _argv:
 	.long LC3
 	.long 0
@@ -234,7 +234,7 @@ _argv:
 LC4:
 	.ascii "HOME=/usr/root\0"
 .data
-	.align 2
+	.align 4
 _envp:
 	.long LC4
 	.long 0
@@ -242,7 +242,7 @@ _envp:
 .text
 LC5:
 	.ascii "TERM=con%dx%d\0"
-	.align 2
+	.align 4
 .globl _main
 _main:
 	pushl %ebp
@@ -288,13 +288,13 @@ L69:
 	jle L70
 	movl $4194304,_buffer_memory_end
 	jmp L71
-	.align 2
+	.align 4
 L70:
 	cmpl $6291456,_memory_end
 	jle L72
 	movl $2097152,_buffer_memory_end
 	jmp L71
-	.align 2
+	.align 4
 L72:
 	movl $1048576,_buffer_memory_end
 L71:
@@ -350,13 +350,13 @@ L77:
 	int $0x80
 /NO_APP
 	jmp L77
-	.align 2
+	.align 4
 	leal -16(%ebp),%esp
 	popl %esi
 	popl %edi
 	leave
 	ret
-	.align 2
+	.align 4
 _printf:
 	pushl %ebx
 	leal 12(%esp),%eax
@@ -385,7 +385,7 @@ LC10:
 	.ascii "Fork failed in init\15\12\0"
 LC11:
 	.ascii "\12\15child %d died with code %04x\12\15\0"
-	.align 2
+	.align 4
 .globl _init
 _init:
 	pushl %ebp
@@ -433,7 +433,7 @@ L82:
 	jl L86
 	movl %eax,%edi
 	jmp L85
-	.align 2
+	.align 4
 L86:
 	negl %eax
 	movl %eax,_errno
@@ -452,7 +452,7 @@ L85:
 	je L87
 	pushl $1
 	call __exit
-	.align 2
+	.align 4
 L87:
 	pushl $_envp_rc
 	pushl $_argv_rc
@@ -460,7 +460,7 @@ L87:
 	call _execve
 	pushl $2
 	call __exit
-	.align 2
+	.align 4
 L84:
 	testl %edi,%edi
 	jle L88
@@ -491,7 +491,7 @@ L94:
 	call _printf
 	addl $4,%esp
 	jmp L91
-	.align 2
+	.align 4
 L93:
 	testl %edi,%edi
 	jne L96
@@ -517,7 +517,7 @@ L93:
 	call _execve
 	pushl %eax
 	call __exit
-	.align 2
+	.align 4
 L96:
 L97:
 	pushl %esi
@@ -539,7 +539,7 @@ L97:
 	negl %eax
 	movl %eax,_errno
 	jmp L91
-	.align 2
+	.align 4
 	leal -16(%ebp),%esp
 	popl %ebx
 	popl %esi

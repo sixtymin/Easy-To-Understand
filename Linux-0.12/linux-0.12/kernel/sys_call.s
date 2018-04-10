@@ -72,15 +72,15 @@ ENOSYS = 38
 .globl _hd_interrupt,_floppy_interrupt,_parallel_interrupt
 .globl _device_not_available, _coprocessor_error
 
-.align 2
+.align 4
 bad_sys_call:
 	pushl $-ENOSYS
 	jmp ret_from_sys_call
-.align 2
+.align 4
 reschedule:
 	pushl $ret_from_sys_call
 	jmp _schedule
-.align 2
+.align 4
 _system_call:
 	push %ds
 	push %es
@@ -136,7 +136,7 @@ ret_from_sys_call:
 	pop %ds
 	iret
 
-.align 2
+.align 4
 _coprocessor_error:
 	push %ds
 	push %es
@@ -154,7 +154,7 @@ _coprocessor_error:
 	pushl $ret_from_sys_call
 	jmp _math_error
 
-.align 2
+.align 4
 _device_not_available:
 	push %ds
 	push %es
@@ -185,7 +185,7 @@ _device_not_available:
 	popl %ebp
 	ret
 
-.align 2
+.align 4
 _timer_interrupt:
 	push %ds		# save ds,es and put kernel data space
 	push %es		# into them. %fs is used by _system_call
@@ -210,7 +210,7 @@ _timer_interrupt:
 	addl $4,%esp		# task switching to accounting ...
 	jmp ret_from_sys_call
 
-.align 2
+.align 4
 _sys_execve:
 	lea EIP(%esp),%eax
 	pushl %eax
@@ -218,7 +218,7 @@ _sys_execve:
 	addl $4,%esp
 	ret
 
-.align 2
+.align 4
 _sys_fork:
 	call _find_empty_process
 	testl %eax,%eax

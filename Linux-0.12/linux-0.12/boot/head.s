@@ -12,7 +12,7 @@
  * the page directory.
  */
 .text
-.globl _idt,_gdt,_pg_dir,_tmp_floppy_area
+.globl idt,gdt,pg_dir,tmp_floppy_area
 _pg_dir:
 startup_32:
 	movl $0x10,%eax
@@ -60,7 +60,7 @@ check_x87:
 	xorl $6,%eax		/* reset MP, set EM */
 	movl %eax,%cr0
 	ret
-.align 2
+.align 4
 1:	.byte 0xDB,0xE4		/* fsetpm for 287, ignored by 387 */
 	ret
 
@@ -146,7 +146,7 @@ L6:
 /* This is the default interrupt "handler" :-) */
 int_msg:
 	.asciz "Unknown interrupt\n\r"
-.align 2
+.align 4
 ignore_int:
 	pushl %eax
 	pushl %ecx
@@ -194,7 +194,7 @@ ignore_int:
  * some kind of marker at them (search for "16Mb"), but I
  * won't guarantee that's all :-( )
  */
-.align 2
+.align 4
 setup_paging:
 	movl $1024*5,%ecx		/* 5 pages - pg_dir+4 page tables */
 	xorl %eax,%eax
@@ -217,18 +217,18 @@ setup_paging:
 	movl %eax,%cr0		/* set paging (PG) bit */
 	ret			/* this also flushes prefetch-queue */
 
-.align 2
+.align 4
 .word 0
 idt_descr:
 	.word 256*8-1		# idt contains 256 entries
 	.long _idt
-.align 2
+.align 4
 .word 0
 gdt_descr:
 	.word 256*8-1		# so does gdt (not that that's any
 	.long _gdt		# magic number, but it works for me :^)
 
-	.align 3
+	.align 8
 _idt:	.fill 256,8,0		# idt is uninitialized
 
 _gdt:	.quad 0x0000000000000000	/* NULL descriptor */

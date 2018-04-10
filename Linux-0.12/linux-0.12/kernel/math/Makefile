@@ -11,8 +11,8 @@ AS	=as
 LD	=ld
 LDFLAGS	=-s -x
 CC	=gcc
-CFLAGS	=-Wall -O -fstrength-reduce -fomit-frame-pointer -fcombine-regs \
-	-finline-functions -mstring-insns -nostdinc -I../../include
+CFLAGS	=-Wall -O -fstrength-reduce -fomit-frame-pointer -m386 \
+	-finline-functions -nostdinc -I../../include
 CPP	=gcc -E -nostdinc -I../../include
 
 .c.s:
