@@ -173,10 +173,10 @@ void main(void)		/* This really IS void, no error here. */
  * task can run, and if not we return here.
  */
 	for(;;)
-		__asm__("int $0x80"::"a" (__NR_pause):"ax");
+		__asm__("int $0x80"::"a" (__NR_pause): );
 }
 
-static int printf(const char *fmt, ...)
+int printf(const char *fmt, ...)
 {
 	va_list args;
 	int i;
