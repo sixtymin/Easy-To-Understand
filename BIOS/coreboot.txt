@@ -1,0 +1,3 @@
+coreboot 硬件启动预初始化平台。
+
+在coreboot完成工作后，调用 SeaBIOS/EUFI进行系统启动
