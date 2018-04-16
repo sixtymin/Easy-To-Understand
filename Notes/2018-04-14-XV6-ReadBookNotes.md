@@ -51,9 +51,12 @@ Qemu中包含了一个gdbserver，可以使用gdb连接到gdbserver对Qemu中的
 
 ```
 // 启动qemu，并且等待gdb连接
-$> qemu-system-i386 -drive file=xv6.img,index=0,media=disk,format=raw -smp 1 -m 512 -s
-// 或
-$> qemu-system-i386 -hda=xv6.img -m 512 -s
+$> qemu-system-i386 -drive file=xv6.img,index=0,media=disk,format=raw -smp 1 -m 512 -s -S
+// -drive 添加驱动器，后面是其参数
+// -smp 表示对称多处理器，这里先设置为1
+// -m 表示内存大小参数
+// -s -gdb参数的缩写，表示 -gdb tcp:1234
+// -S 表示启动后CPU暂时冻结
 ```
 
 在gdb中可以通过如下命令连接到Qemu模拟器上：
@@ -61,7 +64,8 @@ $> qemu-system-i386 -hda=xv6.img -m 512 -s
 ```
 gdb> target remote localhost:1234
 
-gdb> set architecture i8086			// 调试16位代码
+gdb> set architecture i8086			// 切换到调试16位代码
+gdb> set architecture i386			// 切换到调试32位代码
 ```
 
 这样就可以使用gdb调试模拟器中的操作系统了，使用gdb的通用命令。
@@ -133,9 +137,9 @@ PC启动时，CPU加电后最初始状态并非正常运行时的保护模式，
 
 在这时内存的布局如下图1所示。早期的Intel 8088处理器是16位，它仅仅能够访问1MB的物理内存；而作为RAM的仅仅是其中低640KB被称为"Low Memory"一块内存。从0x000A0000开始的384KB的区域被保留给硬件作为特殊用途，比如视频显示缓存，固件。其中最重要的是占据0x000F0000~0x000FFFFF区域的BIOS，早先时候BIOS保存在ROM中，现在一般保存在Flash内存中。
 
-在80286以及之后的CPU中已经打破了1MB的内存访问局限，它们支持16MB到4GB的物理内存访问。PC架构为了保持老式的软件，保留了物理地址空间低1MB的分布形式。由此现代的PC上RAM就被0x000A0000~0x00100000这个"洞"分割为两块，即Low Memory和extended memory。同时在32位物理地址空间的顶部一部分内存空间也被保留给32位的PIC设备使用。
+在80286以及之后的CPU中已经打破了1MB的内存访问局限，它们支持16MB到4GB的物理内存访问。PC架构为了保持与老式的软件兼容，保留了物理地址空间低1MB的分布形式。由此现代的PC上RAM就被0x000A0000~0x00100000这个"洞"分割为两块，即Low Memory和extended memory。同时在32位物理地址空间的顶部一部分内存空间也被保留给32位的PIC设备使用。
 
-![1. Memory Sections](2017-12-15-XV6-ReadBookNotes-Memory-Sections.jpg)
+![1. Memory Sections](2018-04-14-XV6-ReadBookNotes-Memory-Sections.jpg)
 
 BIOS首先进行PC硬件的检测与初始化工作，比如显卡激活，校验内存总大小等，然后BIOS加载用于引导的设备上的第一个扇区（即主引导扇区）到内存0x7C00地址处，并跳转到该地址继续执行。为什么是0x7C00，这个没什么原因。它本来可以是一个任意的地址，但是PC上就被定为了0x7C00，也就变成了固定和标准。
 
@@ -144,19 +148,104 @@ XV6的主引导扇区代码在`bootasm.S`和`bootasm.c`文件中，这两块代�
 bootasm.S的代码如下，
 
 ```
+# Start the first CPU: switch to 32-bit protected mode, jump into C.
+# The BIOS loads this code from the first sector of the hard disk into
+# memory at physical address 0x7c00 and starts executing in real mode
+# with %cs=0 %ip=7c00.
 
-abc
+.code16                       # Assemble for 16-bit mode 16位汇编
+.globl start
+start:
+  cli                         # BIOS enabled interrupts; disable 关中断
 
+  # Zero data segment registers DS, ES, and SS.
+  xorw    %ax,%ax             # Set %ax to zero
+  movw    %ax,%ds             # -> Data Segment
+  movw    %ax,%es             # -> Extra Segment
+  movw    %ax,%ss             # -> Stack Segment
+
+  # Physical address line A20 is tied to zero so that the first PCs
+  # with 2 MB would run software that assumed 1 MB.  Undo that. 开启A20地址线
+seta20.1:
+  inb     $0x64,%al               # Wait for not busy
+  testb   $0x2,%al
+  jnz     seta20.1
+
+  movb    $0xd1,%al               # 0xd1 -> port 0x64 写命令，设置0x60端口
+  outb    %al,$0x64
+
+seta20.2:
+  inb     $0x64,%al               # Wait for not busy
+  testb   $0x2,%al
+  jnz     seta20.2
+
+  movb    $0xdf,%al               # 0xdf -> port 0x60 写数据，开启A20地址线
+  outb    %al,$0x60
+
+  # Switch from real to protected mode.  Use a bootstrap GDT that makes
+  # virtual addresses map directly to physical addresses so that the
+  # effective memory map doesn't change during the transition.
+  # 加载GDTR寄存器，开启保护模式
+  lgdt    gdtdesc
+  movl    %cr0, %eax
+  orl     $CR0_PE, %eax
+  movl    %eax, %cr0
+
+//PAGEBREAK!
+  # Complete the transition to 32-bit protected mode by using a long jmp
+  # to reload %cs and %eip.  The segment descriptors are set up with no
+  # translation, so that the mapping is still the identity mapping.
+  # 通过长跳转加载CS:EIP寄存器内容，完成到32位保护模式的转换
+  ljmp    $(SEG_KCODE<<3), $start32 #
+
+.code32  # Tell assembler to generate 32-bit code now.
+start32:
+  # Set up the protected-mode data segment registers
+  # 在跳转完之后，其他段寄存器没更新，需要代码更新
+  movw    $(SEG_KDATA<<3), %ax    # Our data segment selector
+  movw    %ax, %ds                # -> DS: Data Segment
+  movw    %ax, %es                # -> ES: Extra Segment
+  movw    %ax, %ss                # -> SS: Stack Segment
+  movw    $0, %ax                 # Zero segments not ready for use
+  movw    %ax, %fs                # -> FS
+  movw    %ax, %gs                # -> GS
+
+  # Set up the stack pointer and call into C.
+  # 设置栈，栈顶为start，即0x7C00，跳转到C语言中
+  movl    $start, %esp
+  call    bootmain
+
+  # If bootmain returns (it shouldn't), trigger a Bochs
+  # breakpoint if running under Bochs, then loop.
+  # bootmain函数不应该返回，如果在Bochs中返回了就触发Bochs的断点，再进入循环
+  movw    $0x8a00, %ax            # 0x8a00 -> port 0x8a00
+  movw    %ax, %dx
+  outw    %ax, %dx
+  movw    $0x8ae0, %ax            # 0x8ae0 -> port 0x8a00
+  outw    %ax, %dx
+spin:
+  jmp     spin
+
+# Bootstrap GDT
+.p2align 2                                # force 4 byte alignment
+gdt:
+  SEG_NULLASM                             # null seg
+  SEG_ASM(STA_X|STA_R, 0x0, 0xffffffff)   # code seg
+  SEG_ASM(STA_W, 0x0, 0xffffffff)         # data seg
+
+gdtdesc:
+  .word   (gdtdesc - gdt - 1)             # sizeof(gdt) - 1
+  .long   gdt                             # address gdt
 ```
 
 下面解释一下代码：
 
 1. 第一条指令cli，关闭中断，在BIOS中开启了中断，而进入主引导扇区后，离开了BIOS，则不能再用BIOS的中断系统了，不合理也不安全。
-2. 几个段寄存器在BIOS使用不定，值也不可预测，到这里全部清空，防止有错误值存在。
+2. 几个段寄存器在BIOS如何使用不定，值也不可预测，到这里全部清空，防止有错误值存在。
 3. seta20*两段汇编用于开启A20地址线，为进入32位保护模式做准备，这里使用的是键盘控制器的功能，即I/O端口0x64，0x60。
 4. 接下来`lgdt gdtdesc`用于加载GDT表。代码最后的gdt段即引导阶段的GDT表，可以看到它有两项，一项代码段，一项数据段，两个段的基地址都为0x0，段限则都为0xFFFFFFFF，即整个4G空间。简单说这相当于没有段限制了，将CPU的段基址简化为基本没有。
 5. 取出CR0寄存器值，并将其PE位置位，即开启保护模式。
-6. 开启保护模式后，需要将CPU指令寻址切换到32位的段寻址方式，无法直接操作CS寄存器，所以采取`ljmp $(SEG_KCODE<<3), $start32`指令跳转到紧接着的start32处，目的就是为了切换代码寻址方式到32位保护模式的段寻址。
+6. 开启保护模式后，需要将CPU指令寻址切换到32位的段寻址方式，无法直接操作CS/EIP寄存器，所以采取`ljmp $(SEG_KCODE<<3), $start32`指令跳转到紧接着的start32处，目的是切换代码寻址方式到32位保护模式的段寻址。
 7. 代码段寄存器CS就位后，要将数据段的段寄存器DS/ES/SS设置为指向GDT表数据段条目，FS/GS目前不用被设置为0。
 8. 设置系统栈，将start标号设置为栈底，即从0x7C00向下的内存为栈区域
 9. 调用bootmain()，即C函数。尽量多地用C语言编写，加快编写速度；同时利于理解。
@@ -165,7 +254,7 @@ abc
 
 注意这个汇编文件中包括了两部分代码，16位代码和32位代码，分别为start块和start32块。两块在汇编中分别用.code16和.code32进行标识。
 
-![GDT Item](D:\OS\xv6\labs\2017-12-15-XV6-ReadBookNotes-GDT-Item.jpg)
+![2. GDT Item](2018-04-14-XV6-ReadBookNotes-GDT-Item.jpg)
 
 ```
 // The 0xC0 means the limit is in 4096-byte units
@@ -178,31 +267,60 @@ abc
 
 根据GDT表项的宏定义可知，SEG_ASM默认了B/D位为1，G为1，即32位段且粒度为4K；`0x90|（type）`则默认定义了P位为1，S为1，DPL则为0，即权限级别0，段存在，且为代码或数据段。这几项默认定义基本上确定GDT表项几乎没什么限制可言了，大小4G空间，物理地址直接映射为线性地址。
 
-S为确定是段还是系统的门描述符，S为1表示是段，数据段和代码段。而它为段时，Type的最高位（即11位）为0，则说明是数据段，否则为代码段。为代码段时，D/B为表示使用默认操作数大小，32位还是16位；为代码段时，D/B段表示使用SP寄存器还是ESP寄存器。
+S位确定该项表示段还是系统的门描述符，S为1表示是段（包括数据段和代码段）。当它为段时，Type的最高位（即11位）为0，则说明是数据段，否则为代码段。当表示代码段时，D/B为表示使用默认操作数大小，32位代码还是16位代码；当表示数据段时，D/B段表示使用SP寄存器还是ESP寄存器。
 
-bootmain()函数在bootmain.c文件中，其代码如下代码块所示。
-
-```
-
-
+函数bootmain()在bootmain.c文件中，其代码如下代码块所示。
 
 ```
+void bootmain(void)
+{
+  struct elfhdr *elf;
+  struct proghdr *ph, *eph;
+  void (*entry)(void);
+  uchar* pa;
 
-这段代码涉及到两个事情，读取磁盘，解析ELF格式文件；并且这段代码也有几个预定义。首先设置elf文件读取到内存的位置为0x10000，这个地址在应用程序编程中为程序的默认加载地址，即内核elf文件的默认加载地址；读取4K字节数据（肯定能将内核ELF文件的头读入进来），解析ELF头，确定读入数据正确；依据ELF头格式，依次从磁盘上读取ELF文件的各个段到内存中，这里要依照内核ELF文件中虚拟地址设置来将各段分别放到指定的内存位置；找到ELF文件的入口地址，并跳转过去继续执行。
+  elf = (struct elfhdr*)0x10000;  // scratch space
 
-在加载各个段时，这里有一个小的点要注意。段在文件中的大小和在内存中的大小并不一定相等，那么加载到内存后，要将后面文件中段未覆盖的位置初始化为0。
+  // Read 1st page off disk
+  readseg((uchar*)elf, 4096, 0);
+
+  // Is this an ELF executable?
+  if(elf->magic != ELF_MAGIC)
+    return;  // let bootasm.S handle error
+
+  // Load each program segment (ignores ph flags).
+  ph = (struct proghdr*)((uchar*)elf + elf->phoff);
+  eph = ph + elf->phnum;
+  for(; ph < eph; ph++){	//>
+    pa = (uchar*)ph->paddr;
+    readseg(pa, ph->filesz, ph->off);
+    if(ph->memsz > ph->filesz)
+      stosb(pa + ph->filesz, 0, ph->memsz - ph->filesz);
+  }
+
+  // Call the entry point from the ELF header.
+  // Does not return!
+  entry = (void(*)(void))(elf->entry);
+  entry();
+}
+```
+
+这段代码涉及到两个事情，读取磁盘，解析ELF格式文件；并且这段代码也有几个预定义。首先设置elf文件读取到内存的位置为0x10000，这个地址在应用程序编程中为程序的默认加载地址，即内核elf文件的默认加载地址；读取4K字节数据（肯定能将内核ELF文件的头读入进来），解析ELF头，确定读取数据是否ELF文件；依据ELF头格式依次从磁盘上读取ELF文件的各个段到内存中，这里要依照内核ELF文件中虚拟地址设置来将各段分别放到指定的内存位置；找到ELF文件的入口地址，并跳转过去继续执行。
+
+在加载各个段时，这里有一个小的点要注意。段在文件中的大小和在内存中的大小并不一定相等，那么加载到内存后要将文件中段未覆盖的内存空间初始化为0。
 
 ```
 // Read 'count' bytes at 'offset' from kernel into physical address 'pa'.
 // Might copy more than asked.
-void
-readseg(uchar* pa, uint count, uint offset)
+// 从磁盘上offset位置加载count字节到pa指示的物理地址
+void readseg(uchar* pa, uint count, uint offset)
 {
   uchar* epa;
   epa = pa + count;
-  // Round down to sector boundary.
+  // Round down to sector boundary. // 与扇区边界对齐，保证起始保存的位置和扇区大小对齐
   pa -= offset % SECTSIZE;
   // Translate from bytes to sectors; kernel starts at sector 1.
+  // 起始字节转为起始扇区号，内核从扇区1开始
   offset = (offset / SECTSIZE) + 1;
   // If this is too slow, we could read lots of sectors at a time.
   // We'd write more to memory than asked, but it doesn't matter --
@@ -212,8 +330,7 @@ readseg(uchar* pa, uint count, uint offset)
 }
 
 // Read a single sector at offset into dst.
-void
-readsect(void *dst, uint offset)
+void readsect(void *dst, uint offset)
 {
   // Issue command. LBA模式读取磁盘
   waitdisk();
@@ -238,9 +355,57 @@ void waitdisk(void)
 }
 ```
 
-读取磁盘是通过直接磁盘控制端口来实现，LBA方式。0x1F2为读取磁盘扇区数量，0x1F3～0x1F6为读取扇区逻辑号，0x1F7为磁盘控制命令端口。详细的内容不再此处列出，有兴趣可以Google。读取磁盘时这里也有一个预定义，即从逻辑扇区号1开始读取，因为逻辑扇区号0为主引导扇区，前面BIOS已经读取完毕。
+读取磁盘是通过直接磁盘控制端口来实现，LBA方式。0x1F2为读取磁盘扇区数量，0x1F3～0x1F6为读取扇区逻辑号，0x1F7为磁盘控制命令端口。详细的内容不再此处列出，有兴趣可以Google。读取磁盘时这里也有一个预定义，即从逻辑扇区号1开始读取，因为逻辑扇区号0为主引导扇区，前面BIOS已经读取完毕（注意CHS形式的表示方法，扇区号从1开始计数）。
 
 其实这里读取磁盘也可以调用BIOS的INT 10号功能，具体的方法可以查阅资料，尝试实现，这里不再一一列举。
+
+**调试引导扇区**
+
+```
+#define CRTPORT	0x3D4
+
+static uint16_t *crt = (uint16_t)0x000B8000; // CGA memory
+
+static void
+putc(const int c) {
+	int pos;
+
+	outb(CRTPORT, 14);
+	pos = inb(CRTPORT + 1) << 8;
+	outb(CRTPORT, 15);
+	pos |= inb(CRTPORT + 1);
+
+	if (c == '\n') {
+		pos += 80 - pos % 80;
+	}
+	else
+	{
+		crt[pos++] = (c & 0xff) | 0x0700;
+	}
+
+	outb(CRTPORT, 14);
+	outb(CRTPORT + 1, pos >> 8);
+	outb(CRTPORT, 15);
+	outb(CRTPORT + 1, pos);
+}
+
+static void
+puts(const char *str) {
+	while(*str != '\0') {
+		putc(*str);
+		str++;
+	}
+}
+
+void
+bootmain(void)
+{
+	pubs("This is a bootloader: Hello IdleOS!!!\n");
+
+	while(1)
+		;
+}
+```
 
 ** XV6系统存在问题 **
 
