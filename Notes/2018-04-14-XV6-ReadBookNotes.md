@@ -62,13 +62,13 @@ $> qemu-system-i386 -drive file=xv6.img,index=0,media=disk,format=raw -smp 1 -m 
 在gdb中可以通过如下命令连接到Qemu模拟器上：
 
 ```
-gdb> target remote localhost:1234
+gdb> target remote localhost:1234     // 使用TCP进行远程调试，端口为1234
 
-gdb> set architecture i8086			// 切换到调试16位代码
-gdb> set architecture i386			// 切换到调试32位代码
+gdb> set architecture i8086           // 切换到调试16位代码
+gdb> set architecture i386            // 切换到调试32位代码
 ```
 
-这样就可以使用gdb调试模拟器中的操作系统了，使用gdb的通用命令。
+这样就可以使用gdb调试模拟器中的操作系统了，使用gdb的通用命令，对于gdb比较熟悉的人非常有利。
 
 Qemu的`-d`参数可以生成中断的详细日志。对于调试虚拟内存问题，尝试使用Qemu监视器的`info mem`命令和`info pg`命令获取更多关于虚拟内存的信息。调试多CPU，可以使用GDB的线程相关命令如`thread`和`info threads`等。
 
@@ -135,7 +135,7 @@ PC硬件就没有什么笔记可记录了，基于Intel X86 CPU，介绍它的�
 
 PC启动时，CPU加电后最初始状态并非正常运行时的保护模式，也非MSDOS所使用的实模式，而是一种中间状态，指示CPU运行的段寄存器CS和EIP值各有初始值。CS寄存器值为0xF000，其Base值为0xFFFF0000；EIP则为0x0000FFF0，即IP=0xFFF0。此时的CPU运行代码地址由Base+EIP来计算，即Base+EIP=0xFFFFFFF0。该地址向内容为一条跳转指令，JMP 0xF000:E05B，跳转的目标地址即BIOS在内存中的映射地址。一旦执行了JMP指令，则CPU的CS被重新置位，且CPU进入保护模式，之后的寻址按照CS:IP的形式完成。
 
-在这时内存的布局如下图1所示。早期的Intel 8088处理器是16位，它仅仅能够访问1MB的物理内存；而作为RAM的仅仅是其中低640KB被称为"Low Memory"一块内存。从0x000A0000开始的384KB的区域被保留给硬件作为特殊用途，比如视频显示缓存，固件。其中最重要的是占据0x000F0000~0x000FFFFF区域的BIOS，早先时候BIOS保存在ROM中，现在一般保存在Flash内存中。
+在这时内存的布局如下图1所示。早期的Intel 8088处理器是16位，它仅仅能够访问1MB的物理内存，当时作为RAM的仅仅是其中低640KB被称为"Low Memory"一块内存。从0x000A0000开始的384KB的区域被保留给硬件作为特殊用途，比如视频显示缓存，固件。其中最重要的是占据0x000F0000~0x000FFFFF区域的BIOS，早先时候BIOS保存在ROM中，现在一般保存在Flash内存中。
 
 在80286以及之后的CPU中已经打破了1MB的内存访问局限，它们支持16MB到4GB的物理内存访问。PC架构为了保持与老式的软件兼容，保留了物理地址空间低1MB的分布形式。由此现代的PC上RAM就被0x000A0000~0x00100000这个"洞"分割为两块，即Low Memory和extended memory。同时在32位物理地址空间的顶部一部分内存空间也被保留给32位的PIC设备使用。
 
@@ -361,6 +361,8 @@ void waitdisk(void)
 
 **调试引导扇区**
 
+在实验一中就直接编译整个XV6并进行调试可能会有一些复杂，这里将`bootmain()`改造一下，只让它输出一串字符表示运行起来，并不加载内核的模块。这样可以用实验一中的方法尝试调试。
+
 ```
 #define CRTPORT	0x3D4
 
@@ -400,12 +402,18 @@ puts(const char *str) {
 void
 bootmain(void)
 {
-	pubs("This is a bootloader: Hello IdleOS!!!\n");
-
+    char outPut[] = "Hello IdleOS!!!\n";
+	puts(outPut);
 	while(1)
 		;
 }
 ```
+
+重写一个Makefile文件，生成xv6.img，然后按照上述方法启动qemu，并启动gdb进入远程调试。在引导扇区加载地址`0x7C00`处设置断点，并从gdb中让系统运行起来即可走到断点处，如下图。
+
+![3. 调试显示](2018-04-14-XV6-ReadBookNotes-Bootsector-Debug.png)
+
+具体的代码可以参考github上XV6的阅读笔记中`https://github.com/dbglife/xv6-read/tree/master/codes/lab0`目录下的代码。
 
 ** XV6系统存在问题 **
 
