@@ -13,13 +13,15 @@ MIT最新的教学主页，[https://pdos.csail.mit.edu/6.828/2017/xv6.html](http
 XV6涉及了操作系统中主要的几个方面，包括系统调用，进程，内存管理，I/O，文件系统，管道等，除了这些与用户紧密相关的几个方面之外还包括物理内存管理，中断，驱动程序，同步机制（锁），进程调度等。在下面小节中依次进行学习与笔记记录，包括如下小节：
 
 * 编译工具部署与调试环境建立
-* 系统启动以及XV6启动过程
-* XV6的第一个进程，以及进程创建
+* XV6引导进入内核模块过程
 * XV6的内存管理
 * XV6的中断，异常，系统调用以及驱动程序
 * XV6的同步机制与锁
 * XV6的进程调度
 * XV6的文件系统
+* XV6的第一个进程，以及进程创建
+* 多核CPU处理
+* IOAPIC/串口/控制台/硬盘
 
 ** XV6系统存在问题 **
 
@@ -129,7 +131,7 @@ info pg			// 显示当前的页表结构，输出类似info mem
 By Andy @2018-04-14 16:28:12
 
 
-#### 系统启动以及XV6启动过程 ####
+#### XV6引导进入内核模块过程 ####
 
 PC硬件就没有什么笔记可记录了，基于Intel X86 CPU，介绍它的文档很多，且官方也有参考文档。XV6课程信息中有一部分硬件相关的参考文档，页面地址为:[https://pdos.csail.mit.edu/6.828/2017/reference.html](https://pdos.csail.mit.edu/6.828/2017/reference.html)。
 
@@ -419,18 +421,340 @@ bootmain(void)
 
 * 暂无
 
-#### XV6的第一个进程，以及进程创建 ####
-
-
-** XV6系统存在问题 **
-
-* abc
-
 #### XV6的内存管理 ####
 
+在上面执行到bootmain()函数中时，它加载了磁盘上从第2个扇区开始的内核文件，将它加载到了`0x00010000`地址处。根据ELF文件格式查找其入口地址，并跳转过去继续执行。从ELF的编译上可以知道，它的入口为指定的`_start`函数，即`entry.S`中的`_start`标号。
+
+根据现代计算机的设置，分页开启后，内核被映射到`0x80000000`以上的内存空间中。所以Kernel中实际的虚拟地址也设置为从`0x80010000`开始，但是目前内核被加载到`0x00010000`地址处，所以在编译上入口点上要做一点手脚，将入口地址`_start`设置为`0x00010000`，以方便在引导时可以直接获取并跳转过去执行。如下的`_start = V2P_WO(entry)`语句就是将入口地址设置为entry虚拟地址减去`0x80000000`，即`0x00010000`。这里在如下代码块中给出了宏定义，可以根据`V2P_WO(x)`的定义很明确地得到上述结论。
+
+```
+#define EXTMEM  0x100000            // Start of extended memory
+#define PHYSTOP 0xE000000           // Top physical memory
+#define DEVSPACE 0xFE000000         // Other devices are at high addresses
+
+// Key addresses for address space layout (see kmap in vm.c for layout)
+#define KERNBASE 0x80000000         // First kernel virtual address
+#define KERNLINK (KERNBASE+EXTMEM)  // Address where kernel is linked
+
+#define V2P(a) (((uint) (a)) - KERNBASE)
+#define P2V(a) (((void *) (a)) + KERNBASE)
+
+#define V2P_WO(x) ((x) - KERNBASE)    // same as V2P, but without casts
+#define P2V_WO(x) ((x) + KERNBASE)    // same as P2V, but without casts
+```
+
+进入entry后，首先开启了CPU的PSE机制，将页面大小设置为4M。然后设置页表物理到CR3，并修改CR0中的PG位开启分页机制。一旦开启了分页，后面使用的地址就变成了虚拟地址了。首先将使用的栈更新掉，切换为高地址stack段；然后通过间接跳转转到`main()`函数继续执行。这里必须使用间接跳转，否则汇编器生成了PC相关的跳转指令，那么其实跳转到的目标是`main()`的物理地址，而非高地址空间中虚拟地址的`main()`函数。
+
+```
+# Multiboot header.  Data to direct multiboot loader.
+.p2align 2
+.text
+.globl multiboot_header
+multiboot_header:
+  #define magic 0x1badb002
+  #define flags 0
+  .long magic
+  .long flags
+  .long (-magic-flags)
+
+# By convention, the _start symbol specifies the ELF entry point.
+# Since we haven't set up virtual memory yet, our entry point is
+# the physical address of 'entry'.
+# 按照惯例，_start 符号被指定为ELF的入口点。因为还没有设置好虚拟内存，那么入口点
+# 必须是entry的物理地址
+.globl _start
+_start = V2P_WO(entry)
+
+# Entering xv6 on boot processor, with paging off.
+# 在引导处理器上进入XV6，但是分页机制处于关闭状态。
+.globl entry
+entry:
+  # Turn on page size extension for 4Mbyte pages 开启页大小扩展，以使用4M页面
+  movl    %cr4, %eax
+  orl     $(CR4_PSE), %eax
+  movl    %eax, %cr4
+  # Set page directory 设置页目录
+  movl    $(V2P_WO(entrypgdir)), %eax
+  movl    %eax, %cr3
+  # Turn on paging. 开启分页
+  movl    %cr0, %eax
+  orl     $(CR0_PG|CR0_WP), %eax
+  movl    %eax, %cr0
+
+  # Set up the stack pointer. 设置栈指针，切换到高地址空间
+  movl $(stack + KSTACKSIZE), %esp
+
+  # Jump to main(), and switch to executing at
+  # high addresses. The indirect call is needed because
+  # the assembler produces a PC-relative instruction
+  # for a direct jump.
+  # 跳转到main()函数，切换到执行在高地址空间。需要间接跳转
+  # 因为汇编器会为直接跳转生成一个 PC相对指令
+  mov $main, %eax
+  jmp *%eax
+
+.comm stack, KSTACKSIZE
+```
+
+函数`main()`的代码如下所示。从注释中可以看到引导处理器从main()函数开始执行C代码，那么意思是XV6支持多核处理器，只有用于系统引导的CPU才会执行到这里，而其他的CPU不走这个过程。
+
+在main函数中的任务可以从代码注释中进行了解，不再一一列举。
+
+```
+// Bootstrap processor starts running C code here.
+// Allocate a real stack and switch to it, first
+// doing some setup required for memory allocator to work.
+int main(void)
+{
+  kinit1(end, P2V(4*1024*1024)); // phys page allocator 物理内存分配器初始化，内核结束地址到4M之间内存
+  kvmalloc();      // kernel page table 内核页表
+  mpinit();        // detect other processors 检测其他的处理器是否存在
+  lapicinit();     // interrupt controller 中断控制器设置
+  seginit();       // segment descriptors 短描述符设置
+  picinit();       // disable pic 关闭PIC
+  ioapicinit();    // another interrupt controller 另外一个中断控制器
+  consoleinit();   // console hardware 控制台硬件初始化
+  uartinit();      // serial port 串口初始化
+  pinit();         // process table 进程表初始化
+  tvinit();        // trap vectors 陷阱向量初始化
+  binit();         // buffer cache 缓存初始化
+  fileinit();      // file table 文件表初始化
+  ideinit();       // disk  磁盘初始化
+  startothers();   // start other processors 启动其他的处理器
+  kinit2(P2V(4*1024*1024), P2V(PHYSTOP)); // 必须在startothers()之后，4M到物理内存结束
+  userinit();      // first user process 第一个用户进程启动
+  mpmain();        // finish this processor's setup 完成当前CPU的设置，
+}
+
+// Common CPU setup code. 共同的CPU设置代码
+static void mpmain(void)
+{
+  cprintf("cpu%d: starting %d\n", cpuid(), cpuid());
+  idtinit();       // load idt register 加载IDT寄存器
+  xchg(&(mycpu()->started), 1); // tell startothers() we're up 告诉startothersCPU启动了
+  scheduler();     // start running processes 进入处理器调度
+}
+```
+
+下面看这一节的主要内容：内存管理。
+
+**物理内存管理**
+
+xv6中物理内存是通过链表将所有空闲物理内存链接起来，通过`kalloc()`和`kfree()`两个函数进行管理。从上面系统的初始化过程可以看到有两个函数负责对物理内存进行初始化，分别是`kinit1()`和`kinit2()`。两个函数的调用时机也不同。
+
+`main()`函数中首先调用`kinit1()`将物理内存中内核模块的结束位置end到4MB物理地址这一块空闲的内存分配给物理页分配器使用，主要用于重新构造页表时分配物理内存。而`kinit2()`函数则是初始化4MB以后一直到物理内存结束这块物理内存到空闲链表，以备之后系统调用使用。其代码如下所示。
+
+```
+struct run {
+  struct run *next;
+};
+
+struct {
+  struct spinlock lock;
+  int use_lock;
+  struct run *freelist;
+} kmem;
+
+// Initialization happens in two phases.
+// 1. main() calls kinit1() while still using entrypgdir to place just
+// the pages mapped by entrypgdir on free list.
+// 2. main() calls kinit2() with the rest of the physical pages
+// after installing a full page table that maps them on all cores.
+void kinit1(void *vstart, void *vend)
+{
+  initlock(&kmem.lock, "kmem");
+  kmem.use_lock = 0;
+  freerange(vstart, vend);
+}
+
+void
+kinit2(void *vstart, void *vend)
+{
+  freerange(vstart, vend);
+  kmem.use_lock = 1;
+}
+
+void
+freerange(void *vstart, void *vend)
+{
+  char *p;
+  p = (char*)PGROUNDUP((uint)vstart);
+  for(; p + PGSIZE <= (char*)vend; p += PGSIZE)	// >
+    kfree(p);
+}
+```
+
+从代码可以看到，`kinit1()`和`kinit2()`两个函数都调用了`freerange()`进行地址区间的内存初始化。这里`freerange()`本来用于将一段物理内存释放掉，这里复用了它的功能，用于物理内存块的初始化。它会进一步对每一页物理内存调用`kfree()`函数，将该页物理内存挂到kmem结构中的freelist成员上。在kinit1中初始化了内存分配使用的锁，但是在之后的内存分配调用中并没有使用锁，一方面是因为此时系统还没有初始化完成，单CPU运行并不需要锁；另外一方面是因为这时候锁机制还没有初始化，也不能够使用锁。内存分配使用锁是在kinit2函数调用之后。
+
+物理内存管理主要是通过`kmalloc()`和`kfree()`两个函数完成，其代码如下所示。
+
+```
+//PAGEBREAK: 21
+// Free the page of physical memory pointed at by v,
+// which normally should have been returned by a
+// call to kalloc().  (The exception is when
+// initializing the allocator; see kinit above.)
+// 使用v指向的物理内存页，v通常是通过kalloc()函数分配。
+void kfree(char *v)
+{
+  struct run *r;
+
+  if((uint)v % PGSIZE || v < end || V2P(v) >= PHYSTOP)
+    panic("kfree");
+
+  // Fill with junk to catch dangling refs.将物理内存页覆盖垃圾数据
+  memset(v, 1, PGSIZE);
+
+  if(kmem.use_lock)			// 如果要使用锁，则要先申请锁
+    acquire(&kmem.lock);
+  r = (struct run*)v;
+  r->next = kmem.freelist;	// 放回空闲列表
+  kmem.freelist = r;
+  if(kmem.use_lock)
+    release(&kmem.lock);
+}
+
+// Allocate one 4096-byte page of physical memory.
+// Returns a pointer that the kernel can use.
+// Returns 0 if the memory cannot be allocated.
+// 分配一个4096字节的物理内存页。返回一个内核使用的指针。
+// 如果内存分配失败则返回0。
+char* kalloc(void)
+{
+  struct run *r;
+
+  if(kmem.use_lock)
+    acquire(&kmem.lock);
+  r = kmem.freelist;		// 从freelist分配一页内存
+  if(r)
+    kmem.freelist = r->next;
+  if(kmem.use_lock)
+    release(&kmem.lock);
+  return (char*)r;
+}
+```
+
+**虚拟内存管理**
+
+前面使用的固定页表其实是一个页大小为4MB的模式，页目录中只有一项数据。页为4MB大小的模式不太适用于系统正常运行时的内存分配，所以使用`kvmalloc()`函数对内核页表重新进行设置。kvmalloc()其实调用`setupkvm()`函数进行内核页表的设置，如下代码所示。
+
+```
+// This table defines the kernel's mappings, which are present in
+// every process's page table.
+static struct kmap {
+  void *virt;
+  uint phys_start;
+  uint phys_end;
+  int perm;
+} kmap[] = {
+ { (void*)KERNBASE, 0,             EXTMEM,    PTE_W}, // I/O space
+ { (void*)KERNLINK, V2P(KERNLINK), V2P(data), 0},     // kern text+rodata
+ { (void*)data,     V2P(data),     PHYSTOP,   PTE_W}, // kern data+memory
+ { (void*)DEVSPACE, DEVSPACE,      0,         PTE_W}, // more devices
+};
+
+// Set up kernel part of a page table.
+pde_t*
+setupkvm(void)
+{
+  pde_t *pgdir;
+  struct kmap *k;
+
+  if((pgdir = (pde_t*)kalloc()) == 0)
+    return 0;
+  memset(pgdir, 0, PGSIZE);
+  if (P2V(PHYSTOP) > (void*)DEVSPACE)
+    panic("PHYSTOP too high");
+  for(k = kmap; k < &kmap[NELEM(kmap)]; k++) //>
+    if(mappages(pgdir, k->virt, k->phys_end - k->phys_start,
+                (uint)k->phys_start, k->perm) < 0) {	// >
+      freevm(pgdir);
+      return 0;
+    }
+  return pgdir;
+}
+
+// Switch h/w page table register to the kernel-only page table,
+// for when no process is running.
+void
+switchkvm(void)
+{
+  lcr3(V2P(kpgdir));   // switch to the kernel page table
+}
+
+// Allocate one page table for the machine for the kernel address
+// space for scheduler processes.
+void
+kvmalloc(void)
+{
+  kpgdir = setupkvm();
+  switchkvm();
+}
+```
+
+通过代码可以看到，`setupkvm()`函数首先申请页目录使用物理内存页面，然后根据`kmap`数组中的基本内存分布对物理页进行映射。可以看到对于`data`到物理内存上限都被内核映射了，这么做的原因是通过内核中内存操作可以直接操作物理内存，方便后面代码编写；但是这也会造成问题，一方面页表会多占用物理内存，另一方面要将所有的物理内存都映射到内核空间，这也限制了系统可管理物理内存总量，最多不超过2GB。在设置完内核页表后，`setupkvm()`函数返回构建的页目录地址，调用`switchkvm()`函数将CR3内容切换到新的页目录上。
+
+对于物理内存的映射是通过`mappages()`函数完成的，其代码如下代码块所示。`mappages()`函数将一块物理内存映射到va起始的虚拟地址块中，具体参考代码；`walkpgdir()`则主要完成页表遍历，获取页目录中对应页目录项内容，以确定页表是否存在，存在则直接返回对应的页目录项，如果不存在则根据参数分配一块物理内存当作页表。
+
+```
+// Return the address of the PTE in page table pgdir
+// that corresponds to virtual address va.  If alloc!=0,
+// create any required page table pages.
+// 根据虚拟地址va返回页表pgdir中PTE的地址，如果alloc不为0，
+// 如果需要则创建页表所需要的物理页。
+static pte_t * walkpgdir(pde_t *pgdir, const void *va, int alloc)
+{
+  pde_t *pde;
+  pte_t *pgtab;
+
+  pde = &pgdir[PDX(va)];	// 获取PDE（页目录项），确定PDE是否存在，以获取对应页表
+  if(*pde & PTE_P){
+    pgtab = (pte_t*)P2V(PTE_ADDR(*pde));
+  } else {
+    if(!alloc || (pgtab = (pte_t*)kalloc()) == 0) // 如果要分配，则分配物理页
+      return 0;
+    // Make sure all those PTE_P bits are zero.
+    memset(pgtab, 0, PGSIZE);
+    // The permissions here are overly generous, but they can
+    // be further restricted by the permissions in the page table
+    // entries, if necessary.
+    *pde = V2P(pgtab) | PTE_P | PTE_W | PTE_U;	// 将页表物理页填写到页目录项中
+  }
+  return &pgtab[PTX(va)];
+}
+
+// Create PTEs for virtual addresses starting at va that refer to
+// physical addresses starting at pa. va and size might not
+// be page-aligned.
+// 从虚拟地址va开始为pa开始的物理地址创建PTE，va和大小size可能不是页对齐。
+static int mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
+{
+  char *a, *last;
+  pte_t *pte;
+
+  a = (char*)PGROUNDDOWN((uint)va); // 起始结束地址进行页对齐
+  last = (char*)PGROUNDDOWN(((uint)va) + size - 1);
+  for(;;){	// 每次4K大小的块进行PTE查找，设置内容
+    if((pte = walkpgdir(pgdir, a, 1)) == 0) // 遍历全局页目录，查找PTE
+      return -1;
+    if(*pte & PTE_P)
+      panic("remap");
+    *pte = pa | perm | PTE_P;	// 设置PTE内容
+    if(a == last)
+      break;
+    a += PGSIZE;
+    pa += PGSIZE;
+  }
+  return 0;
+}
+```
+
+
+
 ** XV6系统存在问题 **
 
 * abc
+
 
 #### XV6的中断，异常，系统调用以及驱动程序 ####
 
@@ -459,8 +783,18 @@ bootmain(void)
 * abc
 
 
+#### XV6的第一个进程，以及进程创建 ####
 
 
+** XV6系统存在问题 **
+
+* abc
+
+#### XV6中多CPU初始化与调度 ####
+
+** XV6系统存在问题 **
+
+* abc
 
 
 
