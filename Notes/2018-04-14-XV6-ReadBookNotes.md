@@ -540,9 +540,9 @@ static void mpmain(void)
 
 **物理内存管理**
 
-xv6中物理内存是通过链表将所有空闲物理内存链接起来，通过`kalloc()`和`kfree()`两个函数进行管理。从上面系统的初始化过程可以看到有两个函数负责对物理内存进行初始化，分别是`kinit1()`和`kinit2()`。两个函数的调用时机也不同。
+xv6中物理内存是通过链表将所有空闲物理内存分页后链接起来，通过`kalloc()`和`kfree()`两个函数进行管理。从上面系统的初始化过程可以看到有两个函数负责对物理内存进行初始化，分别是`kinit1()`和`kinit2()`。两个函数的调用时机也不同。
 
-`main()`函数中首先调用`kinit1()`将物理内存中内核模块的结束位置end到4MB物理地址这一块空闲的内存分配给物理页分配器使用，主要用于重新构造页表时分配物理内存。而`kinit2()`函数则是初始化4MB以后一直到物理内存结束这块物理内存到空闲链表，以备之后系统调用使用。其代码如下所示。
+`main()`函数中首先调用`kinit1()`将物理内存中内核模块的结束位置end到4MB物理地址这一块空闲的内存分配给物理页分配器使用，主要用于重新构造页表时分配物理内存。而`kinit2()`函数则是初始化4MB以后一直到物理内存结束这块物理内存到空闲链表，以备之后系统中使用。其代码如下所示。
 
 ```
 struct run {
@@ -567,15 +567,13 @@ void kinit1(void *vstart, void *vend)
   freerange(vstart, vend);
 }
 
-void
-kinit2(void *vstart, void *vend)
+void kinit2(void *vstart, void *vend)
 {
   freerange(vstart, vend);
   kmem.use_lock = 1;
 }
 
-void
-freerange(void *vstart, void *vend)
+void freerange(void *vstart, void *vend)
 {
   char *p;
   p = (char*)PGROUNDUP((uint)vstart);
@@ -584,7 +582,7 @@ freerange(void *vstart, void *vend)
 }
 ```
 
-从代码可以看到，`kinit1()`和`kinit2()`两个函数都调用了`freerange()`进行地址区间的内存初始化。这里`freerange()`本来用于将一段物理内存释放掉，这里复用了它的功能，用于物理内存块的初始化。它会进一步对每一页物理内存调用`kfree()`函数，将该页物理内存挂到kmem结构中的freelist成员上。在kinit1中初始化了内存分配使用的锁，但是在之后的内存分配调用中并没有使用锁，一方面是因为此时系统还没有初始化完成，单CPU运行并不需要锁；另外一方面是因为这时候锁机制还没有初始化，也不能够使用锁。内存分配使用锁是在kinit2函数调用之后。
+从代码可以看到，`kinit1()`和`kinit2()`两个函数都调用了`freerange()`进行地址区间的内存初始化。这里`freerange()`本来用于将一段物理内存释放掉，这里复用了它的功能，用于物理内存块的初始化。它会进一步对每一页物理内存调用`kfree()`函数，将该页物理内存挂到kmem结构中的freelist成员上。在kinit1中初始化了内存分配使用的锁，但是在之后的内存分配调用中并没有使用锁，一方面是因为此时系统还没有初始化完成，单CPU运行并不需要锁；另外一方面是因为这时候锁机制还没有初始化，也不能使用锁。内存分配使用锁是在kinit2函数调用之后。
 
 物理内存管理主要是通过`kmalloc()`和`kfree()`两个函数完成，其代码如下所示。
 
@@ -634,7 +632,7 @@ char* kalloc(void)
 }
 ```
 
-**虚拟内存管理**
+**建立地址空间**
 
 前面使用的固定页表其实是一个页大小为4MB的模式，页目录中只有一项数据。页为4MB大小的模式不太适用于系统正常运行时的内存分配，所以使用`kvmalloc()`函数对内核页表重新进行设置。kvmalloc()其实调用`setupkvm()`函数进行内核页表的设置，如下代码所示。
 
@@ -654,8 +652,7 @@ static struct kmap {
 };
 
 // Set up kernel part of a page table.
-pde_t*
-setupkvm(void)
+pde_t* setupkvm(void)
 {
   pde_t *pgdir;
   struct kmap *k;
@@ -676,23 +673,22 @@ setupkvm(void)
 
 // Switch h/w page table register to the kernel-only page table,
 // for when no process is running.
-void
-switchkvm(void)
+void switchkvm(void)
 {
   lcr3(V2P(kpgdir));   // switch to the kernel page table
 }
 
 // Allocate one page table for the machine for the kernel address
 // space for scheduler processes.
-void
-kvmalloc(void)
+// 为调度进程分配内核地址空间的页表
+void kvmalloc(void)
 {
   kpgdir = setupkvm();
   switchkvm();
 }
 ```
 
-通过代码可以看到，`setupkvm()`函数首先申请页目录使用物理内存页面，然后根据`kmap`数组中的基本内存分布对物理页进行映射。可以看到对于`data`到物理内存上限都被内核映射了，这么做的原因是通过内核中内存操作可以直接操作物理内存，方便后面代码编写；但是这也会造成问题，一方面页表会多占用物理内存，另一方面要将所有的物理内存都映射到内核空间，这也限制了系统可管理物理内存总量，最多不超过2GB。在设置完内核页表后，`setupkvm()`函数返回构建的页目录地址，调用`switchkvm()`函数将CR3内容切换到新的页目录上。
+通过代码可以看到，`setupkvm()`函数首先申请页目录使用的物理内存页面，然后根据`kmap`数组中的基本内存分布对物理页进行映射。可以看到对于`data`到物理内存上限都被内核映射了，这么做的原因是通过内核地址空间中的内存操作可以直接操作物理内存，在写页表时不需要进行映射，方便后面代码编写；但是这也会造成问题，一方面页表会多占用物理内存，另一方面要将所有的物理内存都映射到内核空间，这也限制了系统可管理物理内存总量，最多不超过2GB。在设置完内核页表后，`setupkvm()`函数返回构建的页目录地址，调用`switchkvm()`函数将CR3内容切换到新的页目录上。
 
 对于物理内存的映射是通过`mappages()`函数完成的，其代码如下代码块所示。`mappages()`函数将一块物理内存映射到va起始的虚拟地址块中，具体参考代码；`walkpgdir()`则主要完成页表遍历，获取页目录中对应页目录项内容，以确定页表是否存在，存在则直接返回对应的页目录项，如果不存在则根据参数分配一块物理内存当作页表。
 
@@ -749,12 +745,16 @@ static int mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
 }
 ```
 
-
+用户地址空间的建立放到XV6第一个进程创建过程中在列举，它和进程创建过程关联比较紧密。
 
 ** XV6系统存在问题 **
 
-* abc
-
+* 物理内存默认为240MB，并没有对机器可用内存进行枚举
+* 将物理内存全部映射到了内核地址空间，限制物理内存大小
+* 内存换页没有实现
+* Copy-On-Write的Fork机制没有实现
+* 共享内存和惰性分配（延迟分配 Lazily-allocated page）
+* 栈也无法自动扩展
 
 #### XV6的中断，异常，系统调用以及驱动程序 ####
 
