@@ -1,23 +1,26 @@
-1. 
 
-2. 基础学习：
+2. 学习内容：
+    
+    -3 grep命令使用 / vim 
+    -2. gdb         
+        1. 张银奎GDB教程 （实践）
+        2. DBG官方文档
+        3. 100个GDB技巧
     
     -1. X86-64编程                                              // 基本完成
         1. 编写实模式代码                                       // 完成
         2. 编写保护模式代码                                     // 完成
         3. 编写X64代码（long mode），为今后开发64位系统做准备   // 几个系统代码研读后再研究
-            
+    
     0. 操作系统原理
-        0. Linux内核完全剖析-基于0.12                           // 
-           XV6课程设计                                          // 
-        1. Linux程序设计                                        //
-            学习linux下的编程
-        2. 清华大学操作系统教程                                 // 
+        0. Linux内核完全剖析-基于0.12                           // 基本完成
+           XV6课程设计                                          // 第三章 中断异常
+        1. 清华大学操作系统教程                                 // 
             1. 看视频内容
             2. 阅读lab试验指导书(ucore_os_doc.pdf)
             3. 查看 relate 代码
             4. step by step教程内容 (simple_os_book.pdf)
-        3. ReactOS原理与代码阅读完成                            // 
+        2. ReactOS原理与代码阅读完成                            // 
         
     1. 自己编写操作系统：
         1. 汇编学习                                             // 
@@ -28,26 +31,19 @@
             2. nasm 汇编学习一下                                //
             3. Bran's Kernel Development Tutorial               //
                 http://www.osdever.net/bkerndev/index.php
-                https://github.com/pisceseyes/bkerndev
-            
-                http://www.osdever.net/tutorials/ 主站教程
-                
+                https://github.com/pisceseyes/bkerndev            
+                http://www.osdever.net/tutorials/ 主站教程                
                 http://fleurer-lee.com/paper.html
                 作为了解吧！！！            
             4. http://wiki.0xffffff.org/                        // 
-                    hurlex-doc-master.zip
-        
+                    hurlex-doc-master.zip        
             5. https://pdos.csail.mit.edu/6.828/2011/xv6.html   // 
                 https://github.com/ranxian/xv6-chinese
-
                 book-rev7.pdf (xv6-chinese.pdf中文版)
-                xv6-rev7.pdf
-                
+                xv6-rev7.pdf                
             6. http://wiki.osdev.org/Main_Page                  // 
-
             7. http://www.osdever.net/tutorials/                // 
-                带界面的操作系统 作为了解 
-                
+                带界面的操作系统 作为了解                 
             8. 《Linux内核完全剖析-基于0.12版本》               // 
 
     2. Windows
@@ -92,6 +88,7 @@
             剩下的逐一看，没有用途的删掉        
 
 3. Linux操作系统学习
+    0. Linux基本使用 / gcc文档 / gdb文档 / Vim使用        //
     1. 基础书籍两本：
         Linux内核完全剖析  0.12版内核                     // 
         Linux内核设计的艺术 Linux 0.11版本                //
