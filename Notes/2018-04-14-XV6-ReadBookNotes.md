@@ -6,7 +6,7 @@
 
 XV6系统来自于MIT教学，专门用于操作系统课程的原理与代码结合讲解，并用于课程实践。XV6改编自V6操作系统，V6则无需多言，最初由Unix作者实现于PDP-11机器之上，且非ANSI C完成。MIT师生为了教学方便，将原版V6系统在Intel X86平台上用ANSI C重新实现，即XV6。
 
-MIT最新的教学主页，[https://pdos.csail.mit.edu/6.828/2017/xv6.html](https://pdos.csail.mit.edu/6.828/2017/xv6.html)。XV6教程中文翻译版本，北京大学等几个同学完成，Github地址[https://github.com/ranxian/xv6-chinese](https://github.com/ranxian/xv6-chinese)。
+MIT最新的教学主页，[https://pdos.csail.mit.edu/6.828/2017/xv6.html](https://pdos.csail.mit.edu/6.828/2017/xv6.html)。XV6教程中文翻译版本，由北京大学的几个同学完成，Github地址[https://github.com/ranxian/xv6-chinese](https://github.com/ranxian/xv6-chinese)。
 
 笔记一般分为两个方面，正式的内容，包括XV6原理阅读，代码分析等；XV6存在问题部分则说明了与流行操作系统相比所存在的差别，也作为进一步细化的方向。当然了这些仅是阅读中所了解以及个人的一些想法，可能存在不实地方。
 
@@ -114,7 +114,7 @@ info threads// 显示所有的线程，包括它们的状态以及所在的函�
 
 Qemu常用命令:
 
-Qemu包含了一个内置的监视器，它可以查看和修改机器状态。可以从运行Qemu的终端中通过按`Ctrl-a c`切换到监视器中，再次按`Ctrl-a c`钱换回串口控制台。完整的文档信息可以参考Qemu手册。
+Qemu包含了一个内置的监视器，它可以查看和修改机器状态。可以从运行Qemu的终端中通过按`Ctrl-a c`切换到监视器中，再次按 `Ctrl-a c` 切换回串口控制台。完整的文档信息可以参考 Qemu 手册。
 
 ```
 xp /Nx paddr	// 在物理地址paddr处显示N个字的16进制输出。类似GDB的x命令
